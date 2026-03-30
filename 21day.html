@@ -116,19 +116,19 @@
       </div>
     </div>
     <div class="mt-4 flex flex-wrap gap-2">
-      <button id="supabaseRegisterBtn" class="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 font-semibold text-cyan-200 transition hover:bg-cyan-400/20">
+      <button id="supabaseRegisterBtn" type="button" class="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 font-semibold text-cyan-200 transition hover:bg-cyan-400/20">
         <i class="fas fa-user-plus mr-2"></i>Создать аккаунт
       </button>
-      <button id="supabaseLoginBtn" class="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 font-semibold text-emerald-200 transition hover:bg-emerald-400/20">
+      <button id="supabaseLoginBtn" type="button" class="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 font-semibold text-emerald-200 transition hover:bg-emerald-400/20">
         <i class="fas fa-right-to-bracket mr-2"></i>Войти
       </button>
-      <button id="pushSupabaseBtn" class="rounded-xl border border-teal-400/30 bg-teal-400/10 px-4 py-2 font-semibold text-teal-200 transition hover:bg-teal-400/20">
+      <button id="pushSupabaseBtn" type="button" class="rounded-xl border border-teal-400/30 bg-teal-400/10 px-4 py-2 font-semibold text-teal-200 transition hover:bg-teal-400/20">
         <i class="fas fa-cloud-upload-alt mr-2"></i>Сохранить
       </button>
-      <button id="pullSupabaseBtn" class="rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2 font-semibold text-sky-200 transition hover:bg-sky-400/20">
+      <button id="pullSupabaseBtn" type="button" class="rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2 font-semibold text-sky-200 transition hover:bg-sky-400/20">
         <i class="fas fa-cloud-download-alt mr-2"></i>Загрузить данные
       </button>
-      <button id="supabaseLogoutBtn" class="rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-2 font-semibold text-rose-200 transition hover:bg-rose-400/20">
+      <button id="supabaseLogoutBtn" type="button" class="rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-2 font-semibold text-rose-200 transition hover:bg-rose-400/20">
         <i class="fas fa-arrow-right-from-bracket mr-2"></i>Выйти
       </button>
     </div>
@@ -408,6 +408,24 @@
     };
   }
 
+  function setAccountButtonsBusy(isBusy, activeButtonId = null) {
+    const buttonIds = [
+      "supabaseRegisterBtn",
+      "supabaseLoginBtn",
+      "pushSupabaseBtn",
+      "pullSupabaseBtn",
+      "supabaseLogoutBtn"
+    ];
+
+    buttonIds.forEach(id => {
+      const button = document.getElementById(id);
+      if (!button) return;
+      button.disabled = isBusy ? id !== activeButtonId : false;
+      button.classList.toggle("opacity-60", isBusy && id !== activeButtonId);
+      button.classList.toggle("cursor-wait", isBusy && id === activeButtonId);
+    });
+  }
+
   function renderSupabaseSettings() {
     const info = document.getElementById("supabaseUserInfo");
     const registerBtn = document.getElementById("supabaseRegisterBtn");
@@ -418,9 +436,9 @@
 
     if (registerBtn) registerBtn.disabled = false;
     if (loginBtn) loginBtn.disabled = false;
-    if (logoutBtn) logoutBtn.disabled = !currentSupabaseUser;
-    if (pushBtn) pushBtn.disabled = !currentSupabaseUser;
-    if (pullBtn) pullBtn.disabled = !currentSupabaseUser;
+    if (logoutBtn) logoutBtn.disabled = false;
+    if (pushBtn) pushBtn.disabled = false;
+    if (pullBtn) pullBtn.disabled = false;
 
     if (!currentSupabaseUser) {
       if (info) info.textContent = "После входа твои задачи и прогресс будут сохраняться в аккаунте.";
@@ -635,9 +653,17 @@
       return;
     }
 
+    setAccountButtonsBusy(true, "supabaseRegisterBtn");
+    setSupabaseStatus("Создаю аккаунт...", "info");
     try {
       const client = getSupabaseClient();
-      const { data, error } = await client.auth.signUp({ email, password });
+      const { data, error } = await client.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.href
+        }
+      });
       if (error) throw error;
       currentSupabaseUser = data.user || null;
       renderSupabaseSettings();
@@ -650,6 +676,8 @@
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
       showMotivation(getFriendlySupabaseError(error));
+    } finally {
+      setAccountButtonsBusy(false);
     }
   }
 
@@ -660,6 +688,8 @@
       return;
     }
 
+    setAccountButtonsBusy(true, "supabaseLoginBtn");
+    setSupabaseStatus("Выполняю вход...", "info");
     try {
       const client = getSupabaseClient();
       const { data, error } = await client.auth.signInWithPassword({ email, password });
@@ -670,10 +700,19 @@
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
       showMotivation(getFriendlySupabaseError(error));
+    } finally {
+      setAccountButtonsBusy(false);
     }
   }
 
   async function logoutSupabaseUser() {
+    if (!currentSupabaseUser) {
+      showMotivation("Сейчас нет активного входа.");
+      return;
+    }
+
+    setAccountButtonsBusy(true, "supabaseLogoutBtn");
+    setSupabaseStatus("Выполняю выход...", "info");
     try {
       const client = getSupabaseClient();
       const { error } = await client.auth.signOut();
@@ -684,6 +723,8 @@
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
       showMotivation(getFriendlySupabaseError(error));
+    } finally {
+      setAccountButtonsBusy(false);
     }
   }
 
@@ -1401,19 +1442,39 @@
     loginSupabaseUser();
   });
   document.getElementById("pushSupabaseBtn")?.addEventListener("click", async () => {
+    if (!currentSupabaseUser) {
+      setSupabaseStatus("Сначала войди в аккаунт, чтобы сохранить прогресс.", "warning");
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
+
+    setAccountButtonsBusy(true, "pushSupabaseBtn");
+    setSupabaseStatus("Сохраняю прогресс...", "info");
     try {
       await pushStateToSupabase();
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
       showMotivation(getFriendlySupabaseError(error));
+    } finally {
+      setAccountButtonsBusy(false);
     }
   });
   document.getElementById("pullSupabaseBtn")?.addEventListener("click", async () => {
+    if (!currentSupabaseUser) {
+      setSupabaseStatus("Сначала войди в аккаунт, чтобы загрузить прогресс.", "warning");
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
+
+    setAccountButtonsBusy(true, "pullSupabaseBtn");
+    setSupabaseStatus("Загружаю прогресс...", "info");
     try {
       await pullStateFromSupabase();
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
       showMotivation(getFriendlySupabaseError(error));
+    } finally {
+      setAccountButtonsBusy(false);
     }
   });
   document.getElementById("supabaseLogoutBtn")?.addEventListener("click", () => {
