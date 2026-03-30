@@ -122,12 +122,6 @@
       <button id="supabaseLoginBtn" type="button" class="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 font-semibold text-emerald-200 transition hover:bg-emerald-400/20">
         <i class="fas fa-right-to-bracket mr-2"></i>Войти
       </button>
-      <button id="pushSupabaseBtn" type="button" class="rounded-xl border border-teal-400/30 bg-teal-400/10 px-4 py-2 font-semibold text-teal-200 transition hover:bg-teal-400/20">
-        <i class="fas fa-cloud-upload-alt mr-2"></i>Сохранить
-      </button>
-      <button id="pullSupabaseBtn" type="button" class="rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2 font-semibold text-sky-200 transition hover:bg-sky-400/20">
-        <i class="fas fa-cloud-download-alt mr-2"></i>Загрузить данные
-      </button>
       <button id="supabaseLogoutBtn" type="button" class="rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-2 font-semibold text-rose-200 transition hover:bg-rose-400/20">
         <i class="fas fa-arrow-right-from-bracket mr-2"></i>Выйти
       </button>
@@ -412,8 +406,6 @@
     const buttonIds = [
       "supabaseRegisterBtn",
       "supabaseLoginBtn",
-      "pushSupabaseBtn",
-      "pullSupabaseBtn",
       "supabaseLogoutBtn"
     ];
 
@@ -431,14 +423,10 @@
     const registerBtn = document.getElementById("supabaseRegisterBtn");
     const loginBtn = document.getElementById("supabaseLoginBtn");
     const logoutBtn = document.getElementById("supabaseLogoutBtn");
-    const pushBtn = document.getElementById("pushSupabaseBtn");
-    const pullBtn = document.getElementById("pullSupabaseBtn");
 
     if (registerBtn) registerBtn.disabled = false;
     if (loginBtn) loginBtn.disabled = false;
     if (logoutBtn) logoutBtn.disabled = false;
-    if (pushBtn) pushBtn.disabled = false;
-    if (pullBtn) pullBtn.disabled = false;
 
     if (!currentSupabaseUser) {
       if (info) info.textContent = "После входа твои задачи и прогресс будут сохраняться в аккаунте.";
@@ -1440,42 +1428,6 @@
   });
   document.getElementById("supabaseLoginBtn")?.addEventListener("click", () => {
     loginSupabaseUser();
-  });
-  document.getElementById("pushSupabaseBtn")?.addEventListener("click", async () => {
-    if (!currentSupabaseUser) {
-      setSupabaseStatus("Сначала войди в аккаунт, чтобы сохранить прогресс.", "warning");
-      showMotivation("Сначала войди в аккаунт.");
-      return;
-    }
-
-    setAccountButtonsBusy(true, "pushSupabaseBtn");
-    setSupabaseStatus("Сохраняю прогресс...", "info");
-    try {
-      await pushStateToSupabase();
-    } catch (error) {
-      setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(getFriendlySupabaseError(error));
-    } finally {
-      setAccountButtonsBusy(false);
-    }
-  });
-  document.getElementById("pullSupabaseBtn")?.addEventListener("click", async () => {
-    if (!currentSupabaseUser) {
-      setSupabaseStatus("Сначала войди в аккаунт, чтобы загрузить прогресс.", "warning");
-      showMotivation("Сначала войди в аккаунт.");
-      return;
-    }
-
-    setAccountButtonsBusy(true, "pullSupabaseBtn");
-    setSupabaseStatus("Загружаю прогресс...", "info");
-    try {
-      await pullStateFromSupabase();
-    } catch (error) {
-      setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(getFriendlySupabaseError(error));
-    } finally {
-      setAccountButtonsBusy(false);
-    }
   });
   document.getElementById("supabaseLogoutBtn")?.addEventListener("click", () => {
     logoutSupabaseUser();
