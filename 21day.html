@@ -100,9 +100,9 @@
   <div class="glass-panel mb-8 p-5">
     <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
       <div class="xl:max-w-md">
-        <h2 class="flex items-center gap-2 text-xl font-bold"><i class="fas fa-cloud text-cyan-400"></i> Личный аккаунт и облако</h2>
-        <p class="mt-2 text-sm text-slate-400">Теперь данные привязаны к аккаунту пользователя в Supabase. Каждый человек видит только свои задачи, свой прогресс и свою статистику. Один и тот же аккаунт можно открыть на телефоне и на компьютере.</p>
-        <div id="supabaseStatus" class="mt-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">Облако готово. Войди или создай аккаунт.</div>
+        <h2 class="flex items-center gap-2 text-xl font-bold"><i class="fas fa-cloud text-cyan-400"></i> Аккаунт и сохранение</h2>
+        <p class="mt-2 text-sm text-slate-400">У каждого пользователя свой отдельный прогресс. Войди в аккаунт, и задачи будут доступны на телефоне и на компьютере.</p>
+        <div id="supabaseStatus" class="mt-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">Войди или создай аккаунт, чтобы сохранить свой прогресс.</div>
       </div>
       <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
         <label class="block">
@@ -123,21 +123,16 @@
         <i class="fas fa-right-to-bracket mr-2"></i>Войти
       </button>
       <button id="pushSupabaseBtn" class="rounded-xl border border-teal-400/30 bg-teal-400/10 px-4 py-2 font-semibold text-teal-200 transition hover:bg-teal-400/20">
-        <i class="fas fa-cloud-upload-alt mr-2"></i>Синхронизировать
+        <i class="fas fa-cloud-upload-alt mr-2"></i>Сохранить
       </button>
       <button id="pullSupabaseBtn" class="rounded-xl border border-sky-400/30 bg-sky-400/10 px-4 py-2 font-semibold text-sky-200 transition hover:bg-sky-400/20">
-        <i class="fas fa-cloud-download-alt mr-2"></i>Загрузить мои данные
+        <i class="fas fa-cloud-download-alt mr-2"></i>Загрузить данные
       </button>
       <button id="supabaseLogoutBtn" class="rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-2 font-semibold text-rose-200 transition hover:bg-rose-400/20">
         <i class="fas fa-arrow-right-from-bracket mr-2"></i>Выйти
       </button>
     </div>
     <div id="supabaseUserInfo" class="mt-4 text-sm text-slate-400"></div>
-    <details class="mt-4 rounded-2xl border border-slate-700 bg-slate-900/30 p-4">
-      <summary class="cursor-pointer text-sm font-semibold text-slate-200">SQL для Supabase</summary>
-      <p class="mt-3 text-sm text-slate-400">Этот SQL нужно выполнить в `SQL Editor` один раз. Он создаёт таблицу состояния и политики, где пользователь видит только свои данные. Отдельный файл лежит рядом с сайтом: <span class="font-mono text-cyan-200">supabase_setup.sql</span>.</p>
-      <p class="mt-2 text-xs text-amber-200">Если в проекте включено подтверждение почты, после регистрации пользователю нужно будет подтвердить email. Для более простого сценария можно отключить email confirmation в настройках Auth.</p>
-    </details>
   </div>
 
   <!-- STATS ROW -->
@@ -428,16 +423,16 @@
     if (pullBtn) pullBtn.disabled = !currentSupabaseUser;
 
     if (!currentSupabaseUser) {
-      if (info) info.textContent = "Проект уже подключен к Supabase. После входа данные будут привязаны к твоему аккаунту.";
-      setSupabaseStatus("Облако готово. Войди или создай аккаунт.", "neutral");
+      if (info) info.textContent = "После входа твои задачи и прогресс будут сохраняться в аккаунте.";
+      setSupabaseStatus("Войди или создай аккаунт, чтобы сохранить свой прогресс.", "neutral");
       return;
     }
 
     const lastSyncText = supabaseMeta.lastRemoteUpdatedAt
-      ? ` Последняя синхронизация: ${new Date(supabaseMeta.lastRemoteUpdatedAt).toLocaleString("ru-RU")}.`
+      ? ` Последнее сохранение: ${new Date(supabaseMeta.lastRemoteUpdatedAt).toLocaleString("ru-RU")}.`
       : "";
     if (info) info.textContent = `Текущий пользователь: ${currentSupabaseUser.email || currentSupabaseUser.id}`;
-    setSupabaseStatus(`Вход выполнен. Данные будут синхронизироваться только для этого аккаунта.${lastSyncText}`, "success");
+    setSupabaseStatus(`Вход выполнен. Твой прогресс сохраняется в аккаунте.${lastSyncText}`, "success");
   }
 
   function scheduleSupabaseSync() {
@@ -504,9 +499,9 @@
   }
 
   function getSupabaseClient() {
-    if (!isSupabaseConfigured()) throw new Error("Supabase не настроен.");
+    if (!isSupabaseConfigured()) throw new Error("Сервис сохранения недоступен.");
     if (!window.supabase || typeof window.supabase.createClient !== "function") {
-      throw new Error("SDK Supabase не загрузился.");
+      throw new Error("Не удалось запустить сервис сохранения.");
     }
     if (supabaseClient) return supabaseClient;
 
@@ -522,13 +517,13 @@
 
   function getFriendlySupabaseError(error) {
     const message = error && error.message ? error.message : String(error || "Неизвестная ошибка");
-    if (/Failed to fetch/i.test(message)) return "Не удалось связаться с Supabase. Проверь интернет и настройки проекта.";
+    if (/Failed to fetch/i.test(message)) return "Не удалось подключиться к сервису сохранения. Проверь интернет.";
     if (/Invalid login credentials/i.test(message)) return "Неверный email или пароль.";
     if (/Email not confirmed/i.test(message)) return "Почта ещё не подтверждена. Проверь email или отключи подтверждение в настройках Auth.";
     if (/User already registered/i.test(message)) return "Пользователь с таким email уже существует. Просто войди.";
     if (/Password should be at least/i.test(message)) return "Пароль слишком короткий. Нужен минимум 6 символов.";
-    if (/row-level security/i.test(message)) return "Политики доступа в Supabase ещё не настроены. Выполни SQL-файл.";
-    if (/relation .* does not exist/i.test(message) || /Could not find the table/i.test(message)) return "Таблица discipline_user_state ещё не создана. Выполни SQL-файл.";
+    if (/row-level security/i.test(message)) return "Сохранение временно недоступно. Попробуй позже.";
+    if (/relation .* does not exist/i.test(message) || /Could not find the table/i.test(message)) return "Сохранение временно недоступно. Попробуй позже.";
     return message;
   }
 
@@ -565,7 +560,7 @@
     supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
     saveSupabaseMeta();
     renderSupabaseSettings();
-    if (!silent) showMotivation("Мои задачи и прогресс синхронизированы с облаком.");
+    if (!silent) showMotivation("Прогресс сохранён.");
     return true;
   }
 
@@ -573,8 +568,8 @@
     const { silent = false } = options;
     const row = await fetchStateFromSupabase();
     if (!row || !row.payload) {
-      setSupabaseStatus("Для этого аккаунта в облаке ещё нет сохранённых данных.", "warning");
-      if (!silent) showMotivation("Для этого аккаунта в облаке пока ничего нет.");
+      setSupabaseStatus("Для этого аккаунта пока нет сохранённого прогресса.", "warning");
+      if (!silent) showMotivation("Сохранённых данных пока нет.");
       return false;
     }
 
@@ -582,7 +577,7 @@
     supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
     saveSupabaseMeta();
     applyImportedPayload(row.payload, {
-      toastMessage: silent ? null : "Мои данные загружены из Supabase на это устройство."
+      toastMessage: silent ? null : "Прогресс загружен на это устройство."
     });
     renderSupabaseSettings();
     return true;
@@ -600,7 +595,7 @@
       if (remoteState) {
         if (!hasAnyLocalState() || supabaseMeta.lastSyncedUserId !== currentSupabaseUser.id) {
           await pullStateFromSupabase({ silent: true });
-          showMotivation("Данные аккаунта загружены из облака.");
+          showMotivation("Прогресс загружен.");
         } else {
           supabaseMeta.lastRemoteUpdatedAt = remoteState.updated_at || null;
           supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
@@ -612,11 +607,11 @@
 
       if (supabaseMeta.lastSyncedUserId && supabaseMeta.lastSyncedUserId !== currentSupabaseUser.id) {
         clearLocalProgressForNewAccount();
-        showMotivation("Для нового аккаунта локальные данные очищены. Теперь у этого пользователя будет свой отдельный прогресс.");
+        showMotivation("Это новый аккаунт. Для него начат отдельный прогресс.");
       }
 
       if (hasAnyLocalState() && (!supabaseMeta.lastSyncedUserId || supabaseMeta.lastSyncedUserId === currentSupabaseUser.id)) {
-        const shouldUpload = window.confirm("Для этого аккаунта в облаке пока нет данных. Загрузить текущие локальные задачи и прогресс в Supabase?");
+        const shouldUpload = window.confirm("Для этого аккаунта пока нет сохранённых данных. Сохранить текущие задачи и прогресс?");
         if (shouldUpload) {
           await pushStateToSupabase();
           return;
@@ -626,10 +621,10 @@
       supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
       saveSupabaseMeta();
       renderSupabaseSettings();
-      showMotivation("Аккаунт подключен. Теперь можешь создавать свои задачи, они будут синхронизироваться только для тебя.");
+      showMotivation("Аккаунт подключен. Теперь твой прогресс будет сохраняться.");
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(`Ошибка Supabase: ${getFriendlySupabaseError(error)}`);
+      showMotivation(getFriendlySupabaseError(error));
     }
   }
 
@@ -649,12 +644,12 @@
       if (data.session) {
         await syncStateAfterAuth();
       } else {
-        setSupabaseStatus("Аккаунт создан. Если включено подтверждение почты, сначала подтверди email, затем войди.", "warning");
-        showMotivation("Аккаунт создан. Проверь почту, если в Supabase включено подтверждение email.");
+        setSupabaseStatus("Аккаунт создан. Если письмо с подтверждением включено, сначала подтверди почту, затем войди.", "warning");
+        showMotivation("Аккаунт создан. При необходимости подтверди почту и войди.");
       }
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(`Ошибка регистрации: ${getFriendlySupabaseError(error)}`);
+      showMotivation(getFriendlySupabaseError(error));
     }
   }
 
@@ -671,10 +666,10 @@
       if (error) throw error;
       currentSupabaseUser = data.user || null;
       await syncStateAfterAuth();
-      showMotivation("Вход выполнен. Загружаю персональные данные.");
+      showMotivation("Вход выполнен.");
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(`Ошибка входа: ${getFriendlySupabaseError(error)}`);
+      showMotivation(getFriendlySupabaseError(error));
     }
   }
 
@@ -685,10 +680,10 @@
       if (error) throw error;
       currentSupabaseUser = null;
       renderSupabaseSettings();
-      showMotivation("Выход выполнен. Локальные данные на этом устройстве не удалены.");
+      showMotivation("Выход выполнен.");
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(`Ошибка выхода: ${getFriendlySupabaseError(error)}`);
+      showMotivation(getFriendlySupabaseError(error));
     }
   }
 
@@ -1410,7 +1405,7 @@
       await pushStateToSupabase();
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(`Ошибка Supabase: ${getFriendlySupabaseError(error)}`);
+      showMotivation(getFriendlySupabaseError(error));
     }
   });
   document.getElementById("pullSupabaseBtn")?.addEventListener("click", async () => {
@@ -1418,7 +1413,7 @@
       await pullStateFromSupabase();
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
-      showMotivation(`Ошибка Supabase: ${getFriendlySupabaseError(error)}`);
+      showMotivation(getFriendlySupabaseError(error));
     }
   });
   document.getElementById("supabaseLogoutBtn")?.addEventListener("click", () => {
