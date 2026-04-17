@@ -72,36 +72,34 @@
 
 <div class="max-w-7xl mx-auto px-4 py-5 md:py-7">
   <!-- HEADER -->
-  <div class="mb-7 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+  <div id="appHeader" class="mb-7 hidden flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
     <div class="min-w-0">
       <h1 class="flex flex-wrap items-center gap-2 bg-gradient-to-r from-teal-300 to-cyan-400 bg-clip-text text-3xl font-black tracking-tighter text-transparent sm:text-4xl">
         <i class="fas fa-fist-raised text-teal-300"></i> 21 ДНЕЙ ДИСЦИПЛИНЫ
       </h1>
       <p class="mt-1 text-sm text-slate-400">80% выполнения за день = день засчитан · 3 провала = полный сброс · повторяющиеся задачи создаются заново каждый день</p>
     </div>
-    <div class="glass-panel w-full p-4 text-sm text-slate-400 xl:w-auto xl:min-w-[22rem]">
+    <div id="headerAccountCard" class="glass-panel hidden w-full p-4 text-sm text-slate-400 xl:w-auto xl:min-w-[22rem]">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between xl:flex-col xl:items-stretch">
         <div class="text-left xl:text-right">
           <i class="fas fa-calendar-alt mr-1"></i> старт цикла:
           <span id="startDateDisplay" class="font-mono text-cyan-300">ожидание первой задачи</span>
+          <div class="mt-2"><i class="fas fa-user-shield mr-1"></i> <span id="headerUserEmail" class="text-slate-200">аккаунт не выбран</span></div>
         </div>
         <div class="flex flex-col gap-2 sm:flex-row xl:justify-end">
-          <button id="exportDataBtn" class="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 font-semibold text-cyan-200 transition hover:bg-cyan-400/20">
-            <i class="fas fa-file-export mr-2"></i>Экспорт
-          </button>
-          <button id="importDataBtn" class="rounded-xl border border-teal-400/30 bg-teal-400/10 px-4 py-2 font-semibold text-teal-200 transition hover:bg-teal-400/20">
-            <i class="fas fa-file-import mr-2"></i>Импорт
+          <button id="headerLogoutBtn" type="button" class="rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-2 font-semibold text-rose-200 transition hover:bg-rose-400/20">
+            <i class="fas fa-arrow-right-from-bracket mr-2"></i>Выйти
           </button>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="glass-panel mb-8 p-5">
+  <div id="authScreen" class="glass-panel mx-auto mb-8 max-w-3xl p-5 sm:p-7">
     <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
       <div class="xl:max-w-md">
-        <h2 class="flex items-center gap-2 text-xl font-bold"><i class="fas fa-cloud text-cyan-400"></i> Аккаунт и сохранение</h2>
-        <p class="mt-2 text-sm text-slate-400">У каждого пользователя свой отдельный прогресс. Войди в аккаунт, и задачи будут доступны на телефоне и на компьютере.</p>
+        <h2 class="flex items-center gap-2 text-xl font-bold"><i class="fas fa-shield-halved text-cyan-400"></i> Вход в 21 дней дисциплины</h2>
+        <p class="mt-2 text-sm text-slate-400">Главный экран открывается только после входа. Все задачи, прогресс и заметки хранятся в твоём аккаунте Supabase.</p>
         <div id="supabaseStatus" class="mt-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">Войди или создай аккаунт, чтобы сохранить свой прогресс.</div>
       </div>
       <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
@@ -122,13 +120,11 @@
       <button id="supabaseLoginBtn" type="button" class="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 font-semibold text-emerald-200 transition hover:bg-emerald-400/20">
         <i class="fas fa-right-to-bracket mr-2"></i>Войти
       </button>
-      <button id="supabaseLogoutBtn" type="button" class="rounded-xl border border-rose-400/30 bg-rose-400/10 px-4 py-2 font-semibold text-rose-200 transition hover:bg-rose-400/20">
-        <i class="fas fa-arrow-right-from-bracket mr-2"></i>Выйти
-      </button>
     </div>
     <div id="supabaseUserInfo" class="mt-4 text-sm text-slate-400"></div>
   </div>
 
+  <div id="appContent" class="hidden">
   <!-- STATS ROW -->
   <div class="grid grid-cols-1 gap-5 mb-8 sm:grid-cols-2 xl:grid-cols-4">
     <div class="glass-panel p-5 flex justify-between">
@@ -233,20 +229,14 @@
       </div>
     </div>
   </div>
+  </div>
 </div>
 
 <!-- hidden toast for motivational messages -->
 <div id="motivationToast" class="fixed bottom-5 right-5 motivation-snack p-4 rounded-2xl max-w-sm border-l-8 border-teal-400 transform translate-x-full transition-all duration-300 z-50 shadow-2xl"></div>
-<input id="importDataInput" type="file" accept="application/json" class="hidden">
 
 <script>
-  // ---------- STORAGE KEYS ----------
-  const STORAGE_TEMPLATES = "forge_templates";
-  const STORAGE_CUSTOM   = "forge_custom";
-  const STORAGE_COMPL    = "forge_completions";
-  const STORAGE_CHALLENGE= "forge_challenge";
-  const STORAGE_NOTES    = "forge_notes";
-  const STORAGE_SUPABASE = "forge_supabase_meta";
+  // ---------- REMOTE STORAGE ----------
   const SUPABASE_URL = "https://oywwuxhsqqkjelcwuvbc.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95d3d1eGhzcXFramVsY3d1dmJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4NzE5ODUsImV4cCI6MjA5MDQ0Nzk4NX0.wuKfgsA70So9szb8fh-Oi6TtvEeyEXhnrlDAcr4GXqE";
   const SUPABASE_TABLE = "discipline_user_state";
@@ -294,10 +284,7 @@
   let categoryChart, weeklyChart;
   let currentSelectedCategory = "Work";
   const sentReminderKeys = new Set();
-  let supabaseMeta = {
-    lastRemoteUpdatedAt: null,
-    lastSyncedUserId: null
-  };
+  let supabaseMeta = { lastRemoteUpdatedAt: null };
   let supabaseClient = null;
   let currentSupabaseUser = null;
   let supabaseSyncTimer = null;
@@ -359,11 +346,38 @@
     return Math.min(diff + 1, 21);
   }
 
+  function resetAppState() {
+    templates = [];
+    customTasks = [];
+    completions = {};
+    notes = [];
+    challenge = {
+      startDate: null,
+      failedDaysCount: 0,
+      lastEvaluatedDate: null,
+      isActive: false,
+      lastCycleCelebrated: null,
+      completedCycles: 0
+    };
+    activeStudyNoteId = null;
+    isStudyAnswerVisible = false;
+  }
+
   function sanitizeStoredState() {
     if (!Array.isArray(templates)) templates = [];
     if (!Array.isArray(customTasks)) customTasks = [];
     if (!Array.isArray(notes)) notes = [];
     if (!completions || typeof completions !== "object") completions = {};
+    if (!challenge || typeof challenge !== "object") {
+      challenge = {
+        startDate: null,
+        failedDaysCount: 0,
+        lastEvaluatedDate: null,
+        isActive: false,
+        lastCycleCelebrated: null,
+        completedCycles: 0
+      };
+    }
     delete completions.undefined;
     Object.keys(completions).forEach(key => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) delete completions[key];
@@ -375,20 +389,11 @@
 
   function sanitizeSupabaseMeta() {
     if (!supabaseMeta || typeof supabaseMeta !== "object") {
-      supabaseMeta = { lastRemoteUpdatedAt: null, lastSyncedUserId: null };
+      supabaseMeta = { lastRemoteUpdatedAt: null };
       renderNotesPanel();
       return;
     }
     supabaseMeta.lastRemoteUpdatedAt = supabaseMeta.lastRemoteUpdatedAt || null;
-    supabaseMeta.lastSyncedUserId = supabaseMeta.lastSyncedUserId || null;
-  }
-
-  function hasAnyLocalState() {
-    return templates.length > 0
-      || customTasks.length > 0
-      || Object.keys(completions).length > 0
-      || Boolean(challenge.startDate)
-      || Number(challenge.completedCycles || 0) > 0;
   }
 
   function isSupabaseConfigured() {
@@ -397,15 +402,6 @@
 
   function isSupabaseReadyForSync() {
     return Boolean(currentSupabaseUser && isSupabaseConfigured());
-  }
-
-  function runWithoutCloudSync(callback) {
-    suppressCloudSync = true;
-    try {
-      return callback();
-    } finally {
-      suppressCloudSync = false;
-    }
   }
 
   function setSupabaseStatus(message, tone = "neutral") {
@@ -423,8 +419,25 @@
     status.textContent = message;
   }
 
-  function saveSupabaseMeta() {
-    localStorage.setItem(STORAGE_SUPABASE, JSON.stringify(supabaseMeta));
+  function renderAppAccess() {
+    const isLoggedIn = Boolean(currentSupabaseUser);
+    const authScreen = document.getElementById("authScreen");
+    const appHeader = document.getElementById("appHeader");
+    const appContent = document.getElementById("appContent");
+    const headerAccountCard = document.getElementById("headerAccountCard");
+    const headerUserEmail = document.getElementById("headerUserEmail");
+
+    authScreen?.classList.toggle("hidden", isLoggedIn);
+    appHeader?.classList.toggle("hidden", !isLoggedIn);
+    appHeader?.classList.toggle("flex", isLoggedIn);
+    appContent?.classList.toggle("hidden", !isLoggedIn);
+    headerAccountCard?.classList.toggle("hidden", !isLoggedIn);
+
+    if (headerUserEmail) {
+      headerUserEmail.textContent = isLoggedIn
+        ? (currentSupabaseUser.email || currentSupabaseUser.id)
+        : "аккаунт не выбран";
+    }
   }
 
   function getSupabaseCredentials() {
@@ -438,7 +451,8 @@
     const buttonIds = [
       "supabaseRegisterBtn",
       "supabaseLoginBtn",
-      "supabaseLogoutBtn"
+      "supabaseLogoutBtn",
+      "headerLogoutBtn"
     ];
 
     buttonIds.forEach(id => {
@@ -471,6 +485,7 @@
     if (!currentSupabaseUser) {
       if (info) info.textContent = "После входа твои задачи и прогресс будут сохраняться в аккаунте.";
       setSupabaseStatus("Войди или создай аккаунт, чтобы сохранить свой прогресс.", "neutral");
+      renderAppAccess();
       renderNotesPanel();
       return;
     }
@@ -480,6 +495,7 @@
       : "";
     if (info) info.textContent = `Текущий пользователь: ${currentSupabaseUser.email || currentSupabaseUser.id}`;
     setSupabaseStatus(`Вход выполнен. Твой прогресс сохраняется в аккаунте.${lastSyncText}`, "success");
+    renderAppAccess();
     renderNotesPanel();
   }
 
@@ -492,49 +508,28 @@
   }
 
   function saveTemplates() {
-    localStorage.setItem(STORAGE_TEMPLATES, JSON.stringify(templates));
     scheduleSupabaseSync();
   }
   function saveCustom() {
-    localStorage.setItem(STORAGE_CUSTOM, JSON.stringify(customTasks));
     scheduleSupabaseSync();
   }
   function saveCompletions() {
-    localStorage.setItem(STORAGE_COMPL, JSON.stringify(completions));
     scheduleSupabaseSync();
   }
   function saveNotes() {
-    localStorage.setItem(STORAGE_NOTES, JSON.stringify(notes));
     scheduleSupabaseSync();
   }
   function saveChallenge() {
-    localStorage.setItem(STORAGE_CHALLENGE, JSON.stringify(challenge));
     scheduleSupabaseSync();
   }
 
 
   function saveAllData() {
-    saveTemplates();
-    saveCustom();
-    saveCompletions();
-    saveNotes();
-    saveChallenge();
+    scheduleSupabaseSync();
   }
 
   function clearLocalProgressForNewAccount() {
-    templates = [];
-    customTasks = [];
-    completions = {};
-    notes = [];
-    challenge = {
-      startDate: null,
-      failedDaysCount: 0,
-      lastEvaluatedDate: null,
-      isActive: false,
-      lastCycleCelebrated: null,
-      completedCycles: 0
-    };
-    runWithoutCloudSync(() => saveAllData());
+    resetAppState();
     renderCategoryButtons();
     renderEverything();
   }
@@ -562,7 +557,7 @@
 
     supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
-        persistSession: true,
+        persistSession: false,
         autoRefreshToken: true,
         detectSessionInUrl: false
       }
@@ -612,8 +607,6 @@
     if (error) throw error;
 
     supabaseMeta.lastRemoteUpdatedAt = updatedAt;
-    supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
-    saveSupabaseMeta();
     renderSupabaseSettings();
     if (!silent) showMotivation("Прогресс сохранён.");
     return true;
@@ -629,54 +622,35 @@
     }
 
     supabaseMeta.lastRemoteUpdatedAt = row.updated_at || null;
-    supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
-    saveSupabaseMeta();
-    applyImportedPayload(row.payload, {
-      toastMessage: silent ? null : "Прогресс загружен на это устройство."
-    });
     renderSupabaseSettings();
+    applyImportedPayload(row.payload, {
+      toastMessage: silent ? null : "Прогресс загружен."
+    });
     return true;
   }
 
   async function syncStateAfterAuth() {
     if (!currentSupabaseUser) {
+      resetAppState();
       renderSupabaseSettings();
+      renderEverything();
       return;
     }
 
     try {
       const remoteState = await fetchStateFromSupabase();
 
-      if (remoteState) {
-        if (!hasAnyLocalState() || supabaseMeta.lastSyncedUserId !== currentSupabaseUser.id) {
-          await pullStateFromSupabase({ silent: true });
-          showMotivation("Прогресс загружен.");
-        } else {
-          supabaseMeta.lastRemoteUpdatedAt = remoteState.updated_at || null;
-          supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
-          saveSupabaseMeta();
-          renderSupabaseSettings();
-        }
+      if (remoteState && remoteState.payload) {
+        await pullStateFromSupabase({ silent: true });
+        showMotivation("Прогресс загружен.");
         return;
       }
 
-      if (supabaseMeta.lastSyncedUserId && supabaseMeta.lastSyncedUserId !== currentSupabaseUser.id) {
-        clearLocalProgressForNewAccount();
-        showMotivation("Это новый аккаунт. Для него начат отдельный прогресс.");
-      }
-
-      if (hasAnyLocalState() && (!supabaseMeta.lastSyncedUserId || supabaseMeta.lastSyncedUserId === currentSupabaseUser.id)) {
-        const shouldUpload = window.confirm("Для этого аккаунта пока нет сохранённых данных. Сохранить текущие задачи и прогресс?");
-        if (shouldUpload) {
-          await pushStateToSupabase();
-          return;
-        }
-      }
-
-      supabaseMeta.lastSyncedUserId = currentSupabaseUser.id;
-      saveSupabaseMeta();
+      resetAppState();
+      supabaseMeta.lastRemoteUpdatedAt = null;
       renderSupabaseSettings();
-      showMotivation("Аккаунт подключен. Теперь твой прогресс будет сохраняться.");
+      renderEverything();
+      showMotivation("Аккаунт подключен. Можно начинать новый цикл.");
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
       showMotivation(getFriendlySupabaseError(error));
@@ -755,7 +729,9 @@
       const { error } = await client.auth.signOut();
       if (error) throw error;
       currentSupabaseUser = null;
+      resetAppState();
       renderSupabaseSettings();
+      renderEverything();
       showMotivation("Выход выполнен.");
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
@@ -776,35 +752,30 @@
       currentSupabaseUser = data.session?.user || null;
       renderSupabaseSettings();
 
-      client.auth.onAuthStateChange((_event, session) => {
+      client.auth.onAuthStateChange(async (_event, session) => {
         currentSupabaseUser = session?.user || null;
         renderSupabaseSettings();
+        if (currentSupabaseUser) {
+          await syncStateAfterAuth();
+        } else {
+          resetAppState();
+          renderEverything();
+        }
       });
 
       if (currentSupabaseUser) {
         await syncStateAfterAuth();
+      } else {
+        resetAppState();
+        renderEverything();
       }
     } catch (error) {
       setSupabaseStatus(getFriendlySupabaseError(error), "error");
     }
   }
 
-  function exportProgressToFile() {
-    const payload = createExportPayload();
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `discipline-21days-${todayStr()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    showMotivation("Файл с задачами и прогрессом сохранен. Его можно открыть на телефоне через импорт.");
-  }
-
   function applyImportedPayload(payload, options = {}) {
-    const { toastMessage = "Данные успешно импортированы. Задачи и прогресс перенесены на это устройство." } = options;
+    const { toastMessage = "Данные аккаунта загружены." } = options;
     if (!payload || typeof payload !== "object") throw new Error("Некорректный файл.");
     const source = payload.data && typeof payload.data === "object" ? payload.data : payload;
 
@@ -817,7 +788,6 @@
       : { startDate: null, failedDaysCount: 0, lastEvaluatedDate: null, isActive: false, lastCycleCelebrated: null, completedCycles: 0 };
 
     sanitizeStoredState();
-    runWithoutCloudSync(() => saveAllData());
     renderCategoryButtons();
     renderEverything();
     if (toastMessage) showMotivation(toastMessage);
@@ -1007,20 +977,6 @@
       button.addEventListener("click", () => markNoteReviewed(button.dataset.noteId));
     });
   }
-  function importProgressFromFile(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const payload = JSON.parse(reader.result);
-        applyImportedPayload(payload);
-      } catch (error) {
-        showMotivation("Не удалось импортировать файл. Проверь, что это корректный JSON-экспорт приложения.");
-      }
-    };
-    reader.readAsText(file, "utf-8");
-  }
-
   function initNewChallenge(resetCompletions = true, offsetDays = 2) {
     challenge.startDate = addDaysToDateStr(todayStr(), offsetDays);
     challenge.failedDaysCount = 0;
@@ -1172,6 +1128,10 @@
   }
 
   function addNewTask() {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
     const name = document.getElementById("taskName").value.trim();
     if (!name) { showMotivation("Название задачи обязательно."); return; }
 
@@ -1208,6 +1168,10 @@
   }
 
   function deleteTask(task) {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
     if (!task) return;
     if (!task.isRecurring && isDayLocked(task.date)) {
       showMotivation("Сегодняшний день уже закрыт. Удаление задач для него заблокировано.");
@@ -1227,6 +1191,10 @@
   }
 
   function editTask(task) {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
     if (!task) return;
     if (!task.isRecurring && isDayLocked(task.date)) {
       showMotivation("Сегодняшний день уже закрыт. Редактирование задач для него заблокировано.");
@@ -1268,6 +1236,10 @@
   }
 
   function toggleCompletion(dateStr, taskId, isChecked) {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
     if (!dateStr || !taskId || isDayLocked(dateStr)) return;
     if (!completions[dateStr]) completions[dateStr] = {};
     if (isChecked) completions[dateStr][taskId] = true;
@@ -1534,6 +1506,11 @@
   }
 
   function renderEverything() {
+    if (!currentSupabaseUser) {
+      renderHeaderStats();
+      renderNotesPanel();
+      return;
+    }
     evaluateMissedDays();
     evaluateTodayIfComplete();
     celebrateCycleCompletion();
@@ -1613,32 +1590,10 @@
   }
 
   function loadAllData() {
-    try {
-      const storedTemplates = localStorage.getItem(STORAGE_TEMPLATES);
-      if (storedTemplates) templates = JSON.parse(storedTemplates);
-      const storedCustom = localStorage.getItem(STORAGE_CUSTOM);
-      if (storedCustom) customTasks = JSON.parse(storedCustom);
-      const storedComp = localStorage.getItem(STORAGE_COMPL);
-      if (storedComp) completions = JSON.parse(storedComp);
-      const storedNotes = localStorage.getItem(STORAGE_NOTES);
-      if (storedNotes) notes = JSON.parse(storedNotes);
-      const storedChallenge = localStorage.getItem(STORAGE_CHALLENGE);
-      if (storedChallenge) challenge = JSON.parse(storedChallenge);
-      const storedSupabase = localStorage.getItem(STORAGE_SUPABASE);
-      if (storedSupabase) supabaseMeta = JSON.parse(storedSupabase);
-    } catch (error) {
-      templates = [];
-      customTasks = [];
-      completions = {};
-      notes = [];
-      challenge = { startDate: null, failedDaysCount: 0, lastEvaluatedDate: null, isActive: false };
-      supabaseMeta = { lastRemoteUpdatedAt: null, lastSyncedUserId: null };
-    }
-
+    resetAppState();
+    supabaseMeta = { lastRemoteUpdatedAt: null };
     sanitizeStoredState();
     sanitizeSupabaseMeta();
-    if (challenge.failedDaysCount >= 3) hardResetProgress();
-    else if ((!challenge.startDate || !challenge.isActive) && hasStoredTasks()) initNewChallenge(false, 1);
 
     renderCategoryButtons();
     renderSupabaseSettings();
@@ -1659,22 +1614,19 @@
   document.getElementById("studyRandomNoteBtn")?.addEventListener("click", () => {
     startStudyNote();
   });
-  document.getElementById("exportDataBtn")?.addEventListener("click", exportProgressToFile);
-  document.getElementById("importDataBtn")?.addEventListener("click", () => {
-    document.getElementById("importDataInput")?.click();
-  });
-  document.getElementById("importDataInput")?.addEventListener("change", event => {
-    const file = event.target.files && event.target.files[0] ? event.target.files[0] : null;
-    importProgressFromFile(file);
-    event.target.value = "";
-  });
   document.getElementById("supabaseRegisterBtn")?.addEventListener("click", () => {
     registerSupabaseUser();
   });
   document.getElementById("supabaseLoginBtn")?.addEventListener("click", () => {
     loginSupabaseUser();
   });
+  document.getElementById("supabasePassword")?.addEventListener("keydown", event => {
+    if (event.key === "Enter") loginSupabaseUser();
+  });
   document.getElementById("supabaseLogoutBtn")?.addEventListener("click", () => {
+    logoutSupabaseUser();
+  });
+  document.getElementById("headerLogoutBtn")?.addEventListener("click", () => {
     logoutSupabaseUser();
   });
   loadAllData();
