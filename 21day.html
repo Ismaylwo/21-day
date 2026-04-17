@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -186,7 +186,6 @@
           <div class="text-center text-slate-500 py-8">загрузка задач...</div>
         </div>
       </div>
-    </div>
 
       <div class="glass-panel p-5">
         <div class="flex flex-col gap-3 border-b border-slate-700 pb-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -216,15 +215,15 @@
 
     <!-- RIGHT COL: ANALYTICS -->
     <div class="space-y-6">
-      <div class="glass-panel p-5 min-h-[21rem] flex flex-col">
+      <div class="glass-panel p-5">
         <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-chart-pie text-cyan-400"></i> категории за 7 дней</h3>
-        <div class="mt-4 flex-1 min-h-[16rem]">
+        <div class="mt-4 h-64">
           <canvas id="categoryChart" class="h-full w-full"></canvas>
         </div>
       </div>
-      <div class="glass-panel p-5 min-h-[21rem] flex flex-col">
+      <div class="glass-panel p-5">
         <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-waveform text-cyan-400"></i> выполнение за неделю</h3>
-        <div class="mt-4 flex-1 min-h-[16rem]">
+        <div class="mt-4 h-64">
           <canvas id="weeklyChart" class="h-full w-full"></canvas>
         </div>
       </div>
@@ -371,11 +370,13 @@
     });
     if (!("lastCycleCelebrated" in challenge)) challenge.lastCycleCelebrated = null;
     if (!("completedCycles" in challenge)) challenge.completedCycles = 0;
+    renderNotesPanel();
   }
 
   function sanitizeSupabaseMeta() {
     if (!supabaseMeta || typeof supabaseMeta !== "object") {
       supabaseMeta = { lastRemoteUpdatedAt: null, lastSyncedUserId: null };
+      renderNotesPanel();
       return;
     }
     supabaseMeta.lastRemoteUpdatedAt = supabaseMeta.lastRemoteUpdatedAt || null;
@@ -454,14 +455,23 @@
     const registerBtn = document.getElementById("supabaseRegisterBtn");
     const loginBtn = document.getElementById("supabaseLoginBtn");
     const logoutBtn = document.getElementById("supabaseLogoutBtn");
+    const noteTitleInput = document.getElementById("noteTitle");
+    const noteContentInput = document.getElementById("noteContent");
+    const addNoteBtn = document.getElementById("addNoteBtn");
+    const studyRandomNoteBtn = document.getElementById("studyRandomNoteBtn");
 
     if (registerBtn) registerBtn.disabled = false;
     if (loginBtn) loginBtn.disabled = false;
     if (logoutBtn) logoutBtn.disabled = false;
+    if (noteTitleInput) noteTitleInput.disabled = !currentSupabaseUser;
+    if (noteContentInput) noteContentInput.disabled = !currentSupabaseUser;
+    if (addNoteBtn) addNoteBtn.disabled = !currentSupabaseUser;
+    if (studyRandomNoteBtn) studyRandomNoteBtn.disabled = !currentSupabaseUser;
 
     if (!currentSupabaseUser) {
       if (info) info.textContent = "После входа твои задачи и прогресс будут сохраняться в аккаунте.";
       setSupabaseStatus("Войди или создай аккаунт, чтобы сохранить свой прогресс.", "neutral");
+      renderNotesPanel();
       return;
     }
 
@@ -470,6 +480,7 @@
       : "";
     if (info) info.textContent = `Текущий пользователь: ${currentSupabaseUser.email || currentSupabaseUser.id}`;
     setSupabaseStatus(`Вход выполнен. Твой прогресс сохраняется в аккаунте.${lastSyncText}`, "success");
+    renderNotesPanel();
   }
 
   function scheduleSupabaseSync() {
@@ -828,6 +839,10 @@
   }
 
   function addNote() {
+    if (!currentSupabaseUser) {
+      showMotivation("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u043e\u0439\u0434\u0438 \u0432 \u0430\u043a\u043a\u0430\u0443\u043d\u0442.");
+      return;
+    }
     const titleInput = document.getElementById("noteTitle");
     const contentInput = document.getElementById("noteContent");
     const title = titleInput?.value.trim() || "";
@@ -855,6 +870,10 @@
   }
 
   function deleteNote(noteId) {
+    if (!currentSupabaseUser) {
+      showMotivation("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u043e\u0439\u0434\u0438 \u0432 \u0430\u043a\u043a\u0430\u0443\u043d\u0442.");
+      return;
+    }
     notes = notes.filter(note => note.id !== noteId);
     if (activeStudyNoteId === noteId) {
       activeStudyNoteId = null;
@@ -866,6 +885,10 @@
   }
 
   function startStudyNote(noteId = null) {
+    if (!currentSupabaseUser) {
+      showMotivation("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u043e\u0439\u0434\u0438 \u0432 \u0430\u043a\u043a\u0430\u0443\u043d\u0442.");
+      return;
+    }
     if (notes.length === 0) {
       showMotivation("Сначала добавь хотя бы одну заметку.");
       return;
@@ -888,6 +911,10 @@
   }
 
   function markNoteReviewed(noteId) {
+    if (!currentSupabaseUser) {
+      showMotivation("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u043e\u0439\u0434\u0438 \u0432 \u0430\u043a\u043a\u0430\u0443\u043d\u0442.");
+      return;
+    }
     const note = getNoteById(noteId);
     if (!note) return;
     note.lastReviewedAt = new Date().toISOString();
@@ -902,6 +929,15 @@
     const studyCard = document.getElementById("noteStudyCard");
     const container = document.getElementById("notesContainer");
     if (!studyCard || !container) return;
+
+    if (!currentSupabaseUser) {
+      activeStudyNoteId = null;
+      isStudyAnswerVisible = false;
+      studyCard.classList.add("hidden");
+      studyCard.innerHTML = "";
+      container.innerHTML = `<div class="text-center py-8 text-slate-500">Зайди в аккаунт, чтобы создавать и учить заметки.</div>`;
+      return;
+    }
 
     const activeNote = activeStudyNoteId ? getNoteById(activeStudyNoteId) : null;
     if (!activeNote) {
@@ -971,7 +1007,6 @@
       button.addEventListener("click", () => markNoteReviewed(button.dataset.noteId));
     });
   }
-
   function importProgressFromFile(file) {
     if (!file) return;
     const reader = new FileReader();
@@ -1658,3 +1693,7 @@
 </script>
 </body>
 </html>
+
+
+
+
