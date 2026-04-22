@@ -1065,7 +1065,7 @@
       saveCustom();
     }
 
-    initNewChallenge(challenge.pendingStartMode === "reset", daysBetween(todayStr(), dateStr));
+    initNewChallenge(challenge.pendingStartMode !== "first", daysBetween(todayStr(), dateStr));
     showMotivation(`Цикл назначен на ${formatDisplayDate(challenge.startDate)}.`);
     renderEverything();
   }
@@ -1089,6 +1089,13 @@
       eyebrow.textContent = "Перезапуск цикла";
       title.textContent = "После сброса выбери новый старт";
       text.textContent = "Третий провал обнулил текущий прогресс. Задачи сохранены, теперь выбери, когда запустить новый 21-дневный цикл.";
+      return;
+    }
+
+    if (challenge.pendingStartMode === "completed") {
+      eyebrow.textContent = "Новый цикл";
+      title.textContent = "Выбери старт после успешного завершения";
+      text.textContent = "Цикл на 21 день завершен. Задачи сохранены, а новый прогресс начнется с выбранной даты.";
       return;
     }
 
@@ -1451,6 +1458,9 @@
     } else if (challenge.pendingStartMode === "reset") {
       note.classList.remove("hidden");
       note.innerHTML = "После полного сброса выбери новую дату старта цикла. Задачи сохранены.";
+    } else if (challenge.pendingStartMode === "completed") {
+      note.classList.remove("hidden");
+      note.innerHTML = "Прошлый цикл завершен. Выбери дату старта для нового 21-дневного цикла.";
     } else if (challenge.startDate && isCyclePending()) {
       note.classList.remove("hidden");
       note.innerHTML = `Цикл стартует <span class="font-mono text-cyan-700">${formatDisplayDate(challenge.startDate)}</span>. Повторяющиеся задачи уже в очереди. Галочки появятся в день старта.`;
@@ -1616,7 +1626,11 @@
     document.getElementById("weeklyAverageValue").innerText = `${weeklyAverage}%`;
     const todayComp = getDayCompletion(todayStr());
     const cycleStatus = challenge.pendingStartMode
-      ? (challenge.pendingStartMode === "reset" ? "ожидает новый старт после сброса" : "ожидает выбор первого старта")
+      ? (challenge.pendingStartMode === "reset"
+          ? "ожидает новый старт после сброса"
+          : challenge.pendingStartMode === "completed"
+            ? "ожидает старт нового цикла"
+            : "ожидает выбор первого старта")
       : challenge.startDate
       ? (isCyclePending() ? `ожидает старт ${formatDisplayDate(challenge.startDate)}` : `старт ${formatDisplayDate(challenge.startDate)}`)
       : "ожидание первой задачи";
@@ -1665,16 +1679,15 @@
   }
 
   function promptNextCycleAfterCompletion() {
-    const wantsNextCycle = window.confirm("Ты завершил цикл на 21 день. Хочешь сразу начать еще один цикл? Задачи сохранятся, а прогресс будет сброшен.");
-
-    if (wantsNextCycle) {
-      initNewChallenge(true, 1);
-      showMotivation(`Новый цикл назначен на ${formatDisplayDate(challenge.startDate)}. Задачи сохранены, прогресс сброшен.`);
-      renderEverything();
-      return;
-    }
-
-    showMotivation(`Цикл завершен. В статистике сохранено прохождение: ${challenge.completedCycles} раз.`);
+    challenge.startDate = null;
+    challenge.isActive = false;
+    challenge.failedDaysCount = 0;
+    challenge.lastEvaluatedDate = null;
+    challenge.lastCycleCelebrated = null;
+    challenge.pendingStartMode = "completed";
+    saveChallenge();
+    renderEverything();
+    showMotivation("Цикл завершен. Выбери дату старта для следующего цикла.");
   }
 
   function celebrateCycleCompletion() {
