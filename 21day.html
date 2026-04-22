@@ -140,6 +140,29 @@
   </div>
 
   <div id="appContent" class="hidden">
+  <div id="cycleStartPlanner" class="glass-panel hidden mb-8 p-5">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div class="max-w-2xl">
+        <p id="cycleStartPlannerEyebrow" class="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">Старт цикла</p>
+        <h2 id="cycleStartPlannerTitle" class="mt-2 text-2xl font-black text-slate-900">Выбери, когда начать цикл</h2>
+        <p id="cycleStartPlannerText" class="mt-2 text-sm text-slate-600">После выбора даты цикл сразу перейдет в рабочий режим.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="startCycleNowBtn" type="button" class="rounded-xl bg-teal-600 px-4 py-2 font-semibold text-white transition hover:bg-teal-700">
+          <i class="fas fa-bolt mr-2"></i>Начать сейчас
+        </button>
+        <button id="startCycleTomorrowBtn" type="button" class="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 font-semibold text-cyan-700 transition hover:bg-cyan-100">
+          <i class="fas fa-sun mr-2"></i>Начать завтра
+        </button>
+      </div>
+    </div>
+    <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <input id="customCycleStartDate" type="date" class="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-500">
+      <button id="applyCustomCycleStartBtn" type="button" class="rounded-xl border border-slate-200 bg-white px-4 py-2 font-semibold text-slate-700 transition hover:bg-slate-50">
+        <i class="fas fa-calendar-check mr-2"></i>Выбрать дату
+      </button>
+    </div>
+  </div>
   <!-- STATS ROW -->
   <div class="grid grid-cols-1 gap-5 mb-8 sm:grid-cols-2 xl:grid-cols-4">
     <div class="glass-panel p-5 flex justify-between">
@@ -293,7 +316,8 @@
     lastEvaluatedDate: null,
     isActive: false,
     lastCycleCelebrated: null,
-    completedCycles: 0
+    completedCycles: 0,
+    pendingStartMode: null
   };
 
   let categoryChart, weeklyChart;
@@ -372,7 +396,8 @@
       lastEvaluatedDate: null,
       isActive: false,
       lastCycleCelebrated: null,
-      completedCycles: 0
+      completedCycles: 0,
+      pendingStartMode: null
     };
     activeStudyNoteId = null;
     isStudyAnswerVisible = false;
@@ -390,7 +415,8 @@
         lastEvaluatedDate: null,
         isActive: false,
         lastCycleCelebrated: null,
-        completedCycles: 0
+        completedCycles: 0,
+        pendingStartMode: null
       };
     }
     delete completions.undefined;
@@ -399,6 +425,7 @@
     });
     if (!("lastCycleCelebrated" in challenge)) challenge.lastCycleCelebrated = null;
     if (!("completedCycles" in challenge)) challenge.completedCycles = 0;
+    if (!("pendingStartMode" in challenge)) challenge.pendingStartMode = null;
     renderNotesPanel();
   }
 
@@ -800,7 +827,7 @@
     notes = Array.isArray(source.notes) ? source.notes : [];
     challenge = source.challenge && typeof source.challenge === "object"
       ? source.challenge
-      : { startDate: null, failedDaysCount: 0, lastEvaluatedDate: null, isActive: false, lastCycleCelebrated: null, completedCycles: 0 };
+      : { startDate: null, failedDaysCount: 0, lastEvaluatedDate: null, isActive: false, lastCycleCelebrated: null, completedCycles: 0, pendingStartMode: null };
 
     sanitizeStoredState();
     renderCategoryButtons();
@@ -992,15 +1019,82 @@
       button.addEventListener("click", () => markNoteReviewed(button.dataset.noteId));
     });
   }
-  function initNewChallenge(resetCompletions = true, offsetDays = 2) {
+  function initNewChallenge(resetCompletions = true, offsetDays = 0) {
     challenge.startDate = addDaysToDateStr(todayStr(), offsetDays);
     challenge.failedDaysCount = 0;
     challenge.isActive = true;
     challenge.lastEvaluatedDate = null;
     challenge.lastCycleCelebrated = null;
+    challenge.pendingStartMode = null;
     if (resetCompletions) completions = {};
     saveChallenge();
     saveCompletions();
+  }
+
+  function requestChallengeStart(mode = "first") {
+    challenge.startDate = null;
+    challenge.isActive = false;
+    challenge.failedDaysCount = 0;
+    challenge.lastEvaluatedDate = null;
+    challenge.lastCycleCelebrated = null;
+    challenge.pendingStartMode = mode;
+    saveChallenge();
+    renderEverything();
+  }
+
+  function startChallengeAtDate(dateStr) {
+    if (!dateStr) {
+      showMotivation("Сначала выбери дату старта.");
+      return;
+    }
+
+    if (!hasStoredTasks()) {
+      showMotivation("Сначала добавь хотя бы одну задачу.");
+      return;
+    }
+
+    if (dateStr < todayStr()) {
+      showMotivation("Дата старта не может быть в прошлом.");
+      return;
+    }
+
+    if (challenge.pendingStartMode === "first" && dateStr !== todayStr()) {
+      customTasks = customTasks.map(task => task.date === todayStr()
+        ? { ...task, date: dateStr }
+        : task);
+      saveCustom();
+    }
+
+    initNewChallenge(challenge.pendingStartMode === "reset", daysBetween(todayStr(), dateStr));
+    showMotivation(`Цикл назначен на ${formatDisplayDate(challenge.startDate)}.`);
+    renderEverything();
+  }
+
+  function renderCycleStartPlanner() {
+    const planner = document.getElementById("cycleStartPlanner");
+    const eyebrow = document.getElementById("cycleStartPlannerEyebrow");
+    const title = document.getElementById("cycleStartPlannerTitle");
+    const text = document.getElementById("cycleStartPlannerText");
+    const dateInput = document.getElementById("customCycleStartDate");
+    if (!planner || !eyebrow || !title || !text || !dateInput) return;
+
+    const shouldShow = Boolean(currentSupabaseUser && challenge.pendingStartMode);
+    planner.classList.toggle("hidden", !shouldShow);
+    if (!shouldShow) return;
+
+    dateInput.min = todayStr();
+    if (!dateInput.value || dateInput.value < todayStr()) dateInput.value = todayStr();
+
+    if (challenge.pendingStartMode === "reset") {
+      eyebrow.textContent = "Перезапуск цикла";
+      title.textContent = "После сброса выбери новый старт";
+      text.textContent = "Третий провал обнулил текущий прогресс. Задачи сохранены, теперь выбери, когда запустить новый 21-дневный цикл.";
+      return;
+    }
+
+    eyebrow.textContent = "Первый старт";
+    title.textContent = "Выбери, когда начать первый цикл";
+    text.textContent = "Первая задача уже добавлена. Теперь зафиксируй старт: сегодня, завтра или в выбранную дату.";
   }
 
   function getChallengeDayIndex(dateStr) {
@@ -1104,7 +1198,7 @@
         if (result.failed) failedDays++;
       }
       if (result.reset) {
-        showMotivation("Третий провал достигнут. Прогресс сброшен. Новый цикл начнется через 2 дня.");
+        showMotivation("Третий провал достигнут. Прогресс сброшен. Выбери новую дату старта цикла.");
         return;
       }
       challenge.lastEvaluatedDate = cursor;
@@ -1139,7 +1233,16 @@
   }
 
   function hardResetProgress() {
-    initNewChallenge(true, 2);
+    completions = {};
+    challenge.startDate = null;
+    challenge.failedDaysCount = 0;
+    challenge.lastEvaluatedDate = null;
+    challenge.isActive = false;
+    challenge.lastCycleCelebrated = null;
+    challenge.pendingStartMode = "reset";
+    saveCompletions();
+    saveChallenge();
+    renderEverything();
   }
 
   function addNewTask() {
@@ -1169,7 +1272,10 @@
       saveCustom();
     }
 
-    if (!challenge.startDate || !challenge.isActive) initNewChallenge(false, 1);
+    if (!challenge.startDate && !challenge.isActive && !challenge.pendingStartMode) {
+      challenge.pendingStartMode = "first";
+      saveChallenge();
+    }
 
     document.getElementById("taskName").value = "";
     document.getElementById("taskTime").value = "";
@@ -1177,8 +1283,12 @@
     document.getElementById("taskRecurring").checked = false;
 
     showMotivation(recurring
-      ? `Повторяющаяся задача сохранена. Цикл стартует ${challenge.startDate}.`
-      : "Разовая задача добавлена на сегодня.");
+      ? (challenge.pendingStartMode
+          ? "Повторяющаяся задача сохранена. Теперь выбери, когда запустить цикл."
+          : `Повторяющаяся задача сохранена. Цикл стартует ${formatDisplayDate(challenge.startDate)}.`)
+      : (challenge.pendingStartMode
+          ? "Задача сохранена. Теперь выбери, когда запустить цикл."
+          : "Разовая задача добавлена на сегодня."));
     renderEverything();
   }
 
@@ -1335,16 +1445,22 @@
     note.classList.add("hidden");
     note.innerHTML = "";
 
-    if (challenge.startDate && isCyclePending()) {
+    if (challenge.pendingStartMode === "first") {
       note.classList.remove("hidden");
-      note.innerHTML = `Цикл стартует <span class="font-mono text-cyan-300">${formatDisplayDate(challenge.startDate)}</span>. Повторяющиеся задачи уже в очереди. Галочки появятся в день старта.`;
+      note.innerHTML = "Первая задача уже добавлена. Теперь выбери: начать цикл сейчас, завтра или в выбранную дату.";
+    } else if (challenge.pendingStartMode === "reset") {
+      note.classList.remove("hidden");
+      note.innerHTML = "После полного сброса выбери новую дату старта цикла. Задачи сохранены.";
+    } else if (challenge.startDate && isCyclePending()) {
+      note.classList.remove("hidden");
+      note.innerHTML = `Цикл стартует <span class="font-mono text-cyan-700">${formatDisplayDate(challenge.startDate)}</span>. Повторяющиеся задачи уже в очереди. Галочки появятся в день старта.`;
     } else if (lockedToday) {
       note.classList.remove("hidden");
       note.innerHTML = "Сегодняшний день уже закрыт. Изменение статуса задач заблокировано.";
     }
 
     if (tasks.length === 0 && previewTasks.length === 0) {
-      container.innerHTML = `<div class="text-center py-8 text-slate-400"><i class="fas fa-dice-d6"></i> Пока нет задач. Добавь первую задачу, и цикл стартует завтра.</div>`;
+      container.innerHTML = `<div class="text-center py-8 text-slate-400"><i class="fas fa-dice-d6"></i> Пока нет задач. Добавь первую задачу и выбери дату старта цикла.</div>`;
       document.getElementById("todayCompletedCount").innerText = "0";
       document.getElementById("todayTotalTasks").innerText = "0";
       document.getElementById("todayCompletionPercent").innerText = "0%";
@@ -1499,7 +1615,9 @@
 
     document.getElementById("weeklyAverageValue").innerText = `${weeklyAverage}%`;
     const todayComp = getDayCompletion(todayStr());
-    const cycleStatus = challenge.startDate
+    const cycleStatus = challenge.pendingStartMode
+      ? (challenge.pendingStartMode === "reset" ? "ожидает новый старт после сброса" : "ожидает выбор первого старта")
+      : challenge.startDate
       ? (isCyclePending() ? `ожидает старт ${formatDisplayDate(challenge.startDate)}` : `старт ${formatDisplayDate(challenge.startDate)}`)
       : "ожидание первой задачи";
 
@@ -1517,19 +1635,23 @@
   function renderHeaderStats() {
     document.getElementById("currentDayNum").innerText = String(getDisplayedCycleDay());
     document.getElementById("failedDaysCount").innerText = String(challenge.failedDaysCount);
-    document.getElementById("startDateDisplay").innerText = challenge.startDate ? formatDisplayDate(challenge.startDate) : "ожидание первой задачи";
+    document.getElementById("startDateDisplay").innerText = challenge.pendingStartMode
+      ? "выбери старт"
+      : (challenge.startDate ? formatDisplayDate(challenge.startDate) : "ожидание первой задачи");
   }
 
   function renderEverything() {
     if (!currentSupabaseUser) {
       renderHeaderStats();
       renderNotesPanel();
+      renderCycleStartPlanner();
       return;
     }
     evaluateMissedDays();
     evaluateTodayIfComplete();
     celebrateCycleCompletion();
     renderHeaderStats();
+    renderCycleStartPlanner();
     renderTodayTasks();
     renderNotesPanel();
     renderAnalytics();
@@ -1628,6 +1750,15 @@
   });
   document.getElementById("studyRandomNoteBtn")?.addEventListener("click", () => {
     startStudyNote();
+  });
+  document.getElementById("startCycleNowBtn")?.addEventListener("click", () => {
+    startChallengeAtDate(todayStr());
+  });
+  document.getElementById("startCycleTomorrowBtn")?.addEventListener("click", () => {
+    startChallengeAtDate(addDaysToDateStr(todayStr(), 1));
+  });
+  document.getElementById("applyCustomCycleStartBtn")?.addEventListener("click", () => {
+    startChallengeAtDate(document.getElementById("customCycleStartDate")?.value || "");
   });
   document.getElementById("supabaseRegisterBtn")?.addEventListener("click", () => {
     registerSupabaseUser();
