@@ -343,6 +343,8 @@
   let suppressCloudSync = false;
   let activeStudyNoteId = null;
   let isStudyAnswerVisible = false;
+  let activeFailureReasonDate = null;
+  let dismissedFailureReasonDate = null;
 
   function formatDateLocal(date) {
     const year = date.getFullYear();
@@ -391,6 +393,15 @@
   function isCyclePending() { return Boolean(challenge.startDate && todayStr() < challenge.startDate); }
   function getChallengeEndDate() { return challenge.startDate ? addDaysToDateStr(challenge.startDate, 20) : null; }
   function isDayLocked(dateStr) { return Boolean(completions[dateStr] && completions[dateStr]._evaluated); }
+  function getCycleStartMode() {
+    if (challenge.pendingStartMode === "reset" || challenge.pendingStartMode === "completed") {
+      return challenge.pendingStartMode;
+    }
+    if (!challenge.startDate && !challenge.isActive && hasStoredTasks()) {
+      return "first";
+    }
+    return null;
+  }
   function getDisplayedCycleDay() {
     if (!challenge.startDate || !challenge.isActive) return 0;
     const diff = daysBetween(challenge.startDate, todayStr());
@@ -414,6 +425,8 @@
     };
     activeStudyNoteId = null;
     isStudyAnswerVisible = false;
+    activeFailureReasonDate = null;
+    dismissedFailureReasonDate = null;
   }
 
   function sanitizeStoredState() {
@@ -434,11 +447,25 @@
     }
     delete completions.undefined;
     Object.keys(completions).forEach(key => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) delete completions[key];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+        delete completions[key];
+        return;
+      }
+      if (!completions[key] || typeof completions[key] !== "object") completions[key] = {};
+      if (typeof completions[key]._failureReason === "string") {
+        completions[key]._failureReason = completions[key]._failureReason.trim();
+        if (!completions[key]._failureReason) delete completions[key]._failureReason;
+      } else {
+        delete completions[key]._failureReason;
+      }
+      if (completions[key]._failureReasonUpdatedAt && Number.isNaN(new Date(completions[key]._failureReasonUpdatedAt).getTime())) {
+        delete completions[key]._failureReasonUpdatedAt;
+      }
     });
     if (!("lastCycleCelebrated" in challenge)) challenge.lastCycleCelebrated = null;
     if (!("completedCycles" in challenge)) challenge.completedCycles = 0;
     if (!("pendingStartMode" in challenge)) challenge.pendingStartMode = null;
+    if (!["reset", "completed"].includes(challenge.pendingStartMode)) challenge.pendingStartMode = null;
     renderNotesPanel();
   }
 
@@ -577,22 +604,10 @@
   function saveChallenge() {
     scheduleSupabaseSync();
   }
-
-
-  function saveAllData() {
-    scheduleSupabaseSync();
-  }
-
-  function clearLocalProgressForNewAccount() {
-    resetAppState();
-    renderCategoryButtons();
-    renderEverything();
-  }
-
-  function createExportPayload() {
+  function createStatePayload() {
     return {
       version: APP_STATE_VERSION,
-      exportedAt: new Date().toISOString(),
+      savedAt: new Date().toISOString(),
       data: {
         templates,
         customTasks,
@@ -648,7 +663,7 @@
     const { silent = false } = options;
     if (!currentSupabaseUser) throw new Error("Сначала войди в аккаунт.");
     const client = getSupabaseClient();
-    const payload = createExportPayload();
+    const payload = createStatePayload();
     const updatedAt = new Date().toISOString();
 
     const { error } = await client
@@ -678,7 +693,7 @@
 
     supabaseMeta.lastRemoteUpdatedAt = row.updated_at || null;
     renderSupabaseSettings();
-    applyImportedPayload(row.payload, {
+    applyStatePayload(row.payload, {
       toastMessage: silent ? null : "Прогресс загружен."
     });
     return true;
@@ -829,7 +844,7 @@
     }
   }
 
-  function applyImportedPayload(payload, options = {}) {
+  function applyStatePayload(payload, options = {}) {
     const { toastMessage = "Данные аккаунта загружены." } = options;
     if (!payload || typeof payload !== "object") throw new Error("Некорректный файл.");
     const source = payload.data && typeof payload.data === "object" ? payload.data : payload;
@@ -857,6 +872,24 @@
 
   function formatTextWithBreaks(text) {
     return escapeHtml(text || "").replace(/\n/g, "<br>");
+  }
+
+  function getFailureReason(dateStr) {
+    const value = completions?.[dateStr]?._failureReason;
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  function saveFailureReason(dateStr, reason) {
+    if (!dateStr || !completions[dateStr]) return;
+    const normalizedReason = (reason || "").trim();
+    if (normalizedReason) {
+      completions[dateStr]._failureReason = normalizedReason;
+      completions[dateStr]._failureReasonUpdatedAt = new Date().toISOString();
+    } else {
+      delete completions[dateStr]._failureReason;
+      delete completions[dateStr]._failureReasonUpdatedAt;
+    }
+    saveCompletions();
   }
 
   function getNoteById(noteId) {
@@ -1039,23 +1072,15 @@
     challenge.lastEvaluatedDate = null;
     challenge.lastCycleCelebrated = null;
     challenge.pendingStartMode = null;
+    activeFailureReasonDate = null;
+    dismissedFailureReasonDate = null;
     if (resetCompletions) completions = {};
     saveChallenge();
     saveCompletions();
   }
 
-  function requestChallengeStart(mode = "first") {
-    challenge.startDate = null;
-    challenge.isActive = false;
-    challenge.failedDaysCount = 0;
-    challenge.lastEvaluatedDate = null;
-    challenge.lastCycleCelebrated = null;
-    challenge.pendingStartMode = mode;
-    saveChallenge();
-    renderEverything();
-  }
-
   function startChallengeAtDate(dateStr) {
+    const startMode = getCycleStartMode();
     if (!dateStr) {
       showMotivation("Сначала выбери дату старта.");
       return;
@@ -1071,14 +1096,14 @@
       return;
     }
 
-    if (challenge.pendingStartMode === "first" && dateStr !== todayStr()) {
+    if (startMode === "first" && dateStr !== todayStr()) {
       customTasks = customTasks.map(task => task.date === todayStr()
         ? { ...task, date: dateStr }
         : task);
       saveCustom();
     }
 
-    initNewChallenge(challenge.pendingStartMode !== "first", daysBetween(todayStr(), dateStr));
+    initNewChallenge(startMode !== "first", daysBetween(todayStr(), dateStr));
     showMotivation(`Цикл назначен на ${formatDisplayDate(challenge.startDate)}.`);
     renderEverything();
   }
@@ -1091,21 +1116,22 @@
     const dateInput = document.getElementById("customCycleStartDate");
     if (!planner || !eyebrow || !title || !text || !dateInput) return;
 
-    const shouldShow = Boolean(currentSupabaseUser && challenge.pendingStartMode);
+    const startMode = getCycleStartMode();
+    const shouldShow = Boolean(currentSupabaseUser && startMode);
     planner.classList.toggle("hidden", !shouldShow);
     if (!shouldShow) return;
 
     dateInput.min = todayStr();
     if (!dateInput.value || dateInput.value < todayStr()) dateInput.value = todayStr();
 
-    if (challenge.pendingStartMode === "reset") {
+    if (startMode === "reset") {
       eyebrow.textContent = "Перезапуск цикла";
       title.textContent = "После сброса выбери новый старт";
       text.textContent = "Третий провал обнулил текущий прогресс. Задачи сохранены, теперь выбери, когда запустить новый 21-дневный цикл.";
       return;
     }
 
-    if (challenge.pendingStartMode === "completed") {
+    if (startMode === "completed") {
       eyebrow.textContent = "Новый цикл";
       title.textContent = "Выбери старт после успешного завершения";
       text.textContent = "Цикл на 21 день завершен. Задачи сохранены, а новый прогресс начнется с выбранной даты.";
@@ -1196,7 +1222,7 @@
           status = "upcoming";
           label = "впереди";
         }
-      } else if (challenge.pendingStartMode) {
+      } else if (getCycleStartMode()) {
         status = "planned";
         label = "дата не выбрана";
       }
@@ -1217,7 +1243,7 @@
 
     summary.textContent = challenge.startDate
       ? `Пройдено: ${passedCount} · Провалено: ${failedCount} · Активно сейчас: ${inProgressCount}`
-      : (challenge.pendingStartMode ? "Цикл подготовлен, но дата старта ещё не зафиксирована." : "Цикл ещё не запускался.");
+      : (getCycleStartMode() ? "Цикл подготовлен, но дата старта ещё не зафиксирована." : "Цикл ещё не запускался.");
 
     const palette = {
       passed: "border-emerald-200 bg-emerald-50 text-emerald-900",
@@ -1239,23 +1265,120 @@
       not_started: "Ожидание"
     };
 
-    grid.innerHTML = entries.map(entry => `
-      <div class="rounded-2xl border px-4 py-4 ${palette[entry.status]}" title="${entry.label}">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="text-xs font-semibold uppercase tracking-[0.2em] opacity-70">День ${entry.dayNumber}</div>
-            <div class="mt-2 text-sm font-semibold">${entry.dateStr ? formatDisplayDate(entry.dateStr) : "дата не выбрана"}</div>
+    grid.innerHTML = entries.map(entry => {
+      const failureReason = entry.dateStr ? getFailureReason(entry.dateStr) : "";
+      const isFailureReasonOpen = entry.status === "failed" && activeFailureReasonDate === entry.dateStr;
+      let failureReasonMarkup = "";
+
+      if (entry.status === "failed") {
+        if (failureReason) {
+          failureReasonMarkup = `
+            <div class="mt-4 rounded-2xl border border-rose-200 bg-white/80 p-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-700">Причина провала</div>
+                <button type="button" class="failure-reason-toggle-btn rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100" data-date="${entry.dateStr}">
+                  ${isFailureReasonOpen ? "Скрыть" : "Изменить"}
+                </button>
+              </div>
+              <div class="mt-2 whitespace-pre-line text-sm leading-6 text-rose-950">${formatTextWithBreaks(failureReason)}</div>
+              ${isFailureReasonOpen ? `
+                <div class="mt-3">
+                  <textarea class="failure-reason-input w-full rounded-2xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-rose-300" rows="3" data-date="${entry.dateStr}">${escapeHtml(failureReason)}</textarea>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <button type="button" class="save-failure-reason-btn rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700" data-date="${entry.dateStr}">Сохранить</button>
+                    <button type="button" class="clear-failure-reason-btn rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-date="${entry.dateStr}">Удалить</button>
+                  </div>
+                </div>
+              ` : ""}
+            </div>
+          `;
+        } else {
+          failureReasonMarkup = `
+            <div class="mt-4 rounded-2xl border border-dashed border-rose-300 bg-white/75 p-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-sm text-rose-900">Запиши, почему день сорвался, чтобы не повторить это в следующем цикле.</div>
+                <button type="button" class="failure-reason-toggle-btn rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100" data-date="${entry.dateStr}">
+                  ${isFailureReasonOpen ? "Скрыть" : "Указать причину"}
+                </button>
+              </div>
+              ${isFailureReasonOpen ? `
+                <div class="mt-3">
+                  <textarea class="failure-reason-input w-full rounded-2xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-rose-300" rows="3" data-date="${entry.dateStr}" placeholder="Что именно сорвало день: перегруз, отсутствие плана, поздний старт, отвлечение, усталость..."></textarea>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <button type="button" class="save-failure-reason-btn rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700" data-date="${entry.dateStr}">Сохранить</button>
+                    <button type="button" class="dismiss-failure-reason-btn rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-date="${entry.dateStr}">Позже</button>
+                  </div>
+                </div>
+              ` : ""}
+            </div>
+          `;
+        }
+      }
+
+      return `
+        <div class="rounded-2xl border px-4 py-4 ${palette[entry.status]}" title="${entry.label}">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-[0.2em] opacity-70">День ${entry.dayNumber}</div>
+              <div class="mt-2 text-sm font-semibold">${entry.dateStr ? formatDisplayDate(entry.dateStr) : "дата не выбрана"}</div>
+            </div>
+            <span class="rounded-full bg-white/80 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em]">${badges[entry.status]}</span>
           </div>
-          <span class="rounded-full bg-white/80 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em]">${badges[entry.status]}</span>
+          <div class="mt-3 text-sm">${entry.label}</div>
+          <div class="mt-3 flex flex-wrap gap-3 text-xs opacity-80">
+            <span>задач: ${entry.summary.total}</span>
+            <span>выполнено: ${entry.summary.completed}</span>
+            <span>${Math.round(entry.summary.percent)}%</span>
+          </div>
+          ${failureReasonMarkup}
         </div>
-        <div class="mt-3 text-sm">${entry.label}</div>
-        <div class="mt-3 flex flex-wrap gap-3 text-xs opacity-80">
-          <span>задач: ${entry.summary.total}</span>
-          <span>выполнено: ${entry.summary.completed}</span>
-          <span>${Math.round(entry.summary.percent)}%</span>
-        </div>
-      </div>
-    `).join("");
+      `;
+    }).join("");
+
+    grid.querySelectorAll(".failure-reason-toggle-btn").forEach(button => {
+      button.addEventListener("click", () => {
+        const dateStr = button.dataset.date;
+        if (!dateStr) return;
+        activeFailureReasonDate = activeFailureReasonDate === dateStr ? null : dateStr;
+        if (activeFailureReasonDate === dateStr) dismissedFailureReasonDate = null;
+        renderCycleHistory();
+      });
+    });
+
+    grid.querySelectorAll(".dismiss-failure-reason-btn").forEach(button => {
+      button.addEventListener("click", () => {
+        dismissedFailureReasonDate = button.dataset.date || null;
+        activeFailureReasonDate = null;
+        renderCycleHistory();
+      });
+    });
+
+    grid.querySelectorAll(".save-failure-reason-btn").forEach(button => {
+      button.addEventListener("click", () => {
+        const dateStr = button.dataset.date;
+        const input = grid.querySelector(`.failure-reason-input[data-date="${dateStr}"]`);
+        const value = input?.value || "";
+        if (!value.trim()) {
+          showMotivation("Напиши хотя бы короткую причину провала.");
+          return;
+        }
+        saveFailureReason(dateStr, value);
+        activeFailureReasonDate = null;
+        dismissedFailureReasonDate = null;
+        showMotivation("Причина провала сохранена.");
+        renderCycleHistory();
+      });
+    });
+
+    grid.querySelectorAll(".clear-failure-reason-btn").forEach(button => {
+      button.addEventListener("click", () => {
+        const dateStr = button.dataset.date;
+        saveFailureReason(dateStr, "");
+        activeFailureReasonDate = dateStr;
+        showMotivation("Причина провала удалена.");
+        renderCycleHistory();
+      });
+    });
   }
 
   function evaluateDay(dateStr) {
@@ -1271,6 +1394,9 @@
 
     if (completions[dateStr]._failed) {
       challenge.failedDaysCount++;
+      if (!getFailureReason(dateStr) && dismissedFailureReasonDate !== dateStr) {
+        activeFailureReasonDate = dateStr;
+      }
     }
 
     saveCompletions();
@@ -1345,6 +1471,8 @@
     challenge.isActive = false;
     challenge.lastCycleCelebrated = null;
     challenge.pendingStartMode = "reset";
+    activeFailureReasonDate = null;
+    dismissedFailureReasonDate = null;
     saveCompletions();
     saveChallenge();
     renderEverything();
@@ -1377,21 +1505,17 @@
       saveCustom();
     }
 
-    if (!challenge.startDate && !challenge.isActive && !challenge.pendingStartMode) {
-      challenge.pendingStartMode = "first";
-      saveChallenge();
-    }
-
     document.getElementById("taskName").value = "";
     document.getElementById("taskTime").value = "";
     document.getElementById("taskDesc").value = "";
     document.getElementById("taskRecurring").checked = false;
 
+    const startMode = getCycleStartMode();
     showMotivation(recurring
-      ? (challenge.pendingStartMode
+      ? (startMode
           ? "Повторяющаяся задача сохранена. Теперь выбери, когда запустить цикл."
           : `Повторяющаяся задача сохранена. Цикл стартует ${formatDisplayDate(challenge.startDate)}.`)
-      : (challenge.pendingStartMode
+      : (startMode
           ? "Задача сохранена. Теперь выбери, когда запустить цикл."
           : "Разовая задача добавлена на сегодня."));
     renderEverything();
@@ -1540,6 +1664,7 @@
 
   function renderTodayTasks() {
     const today = todayStr();
+    const startMode = getCycleStartMode();
     const tasks = getTasksForDate(today);
     const previewTasks = isCyclePending() ? getTasksForDate(challenge.startDate).filter(task => task.isRecurring) : [];
     const compMap = completions[today] || {};
@@ -1550,13 +1675,13 @@
     note.classList.add("hidden");
     note.innerHTML = "";
 
-    if (challenge.pendingStartMode === "first") {
+    if (startMode === "first") {
       note.classList.remove("hidden");
       note.innerHTML = "Первая задача уже добавлена. Теперь выбери: начать цикл сейчас, завтра или в выбранную дату.";
-    } else if (challenge.pendingStartMode === "reset") {
+    } else if (startMode === "reset") {
       note.classList.remove("hidden");
       note.innerHTML = "После полного сброса выбери новую дату старта цикла. Задачи сохранены.";
-    } else if (challenge.pendingStartMode === "completed") {
+    } else if (startMode === "completed") {
       note.classList.remove("hidden");
       note.innerHTML = "Прошлый цикл завершен. Выбери дату старта для нового 21-дневного цикла.";
     } else if (challenge.startDate && isCyclePending()) {
@@ -1723,10 +1848,11 @@
 
     document.getElementById("weeklyAverageValue").innerText = `${weeklyAverage}%`;
     const todayComp = getDayCompletion(todayStr());
-    const cycleStatus = challenge.pendingStartMode
-      ? (challenge.pendingStartMode === "reset"
+    const startMode = getCycleStartMode();
+    const cycleStatus = startMode
+      ? (startMode === "reset"
           ? "ожидает новый старт после сброса"
-          : challenge.pendingStartMode === "completed"
+          : startMode === "completed"
             ? "ожидает старт нового цикла"
             : "ожидает выбор первого старта")
       : challenge.startDate
@@ -1745,9 +1871,10 @@
   }
 
   function renderHeaderStats() {
+    const startMode = getCycleStartMode();
     document.getElementById("currentDayNum").innerText = String(getDisplayedCycleDay());
     document.getElementById("failedDaysCount").innerText = String(challenge.failedDaysCount);
-    document.getElementById("startDateDisplay").innerText = challenge.pendingStartMode
+    document.getElementById("startDateDisplay").innerText = startMode
       ? "выбери старт"
       : (challenge.startDate ? formatDisplayDate(challenge.startDate) : "ожидание первой задачи");
   }
@@ -1785,6 +1912,8 @@
     challenge.lastEvaluatedDate = null;
     challenge.lastCycleCelebrated = null;
     challenge.pendingStartMode = "completed";
+    activeFailureReasonDate = null;
+    dismissedFailureReasonDate = null;
     saveChallenge();
     renderEverything();
     showMotivation("Цикл завершен. Выбери дату старта для следующего цикла.");
