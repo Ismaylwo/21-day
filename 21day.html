@@ -397,7 +397,7 @@
     if (challenge.pendingStartMode === "reset" || challenge.pendingStartMode === "completed") {
       return challenge.pendingStartMode;
     }
-    if (!challenge.startDate && !challenge.isActive && hasStoredTasks()) {
+    if (!challenge.isActive && hasStoredTasks()) {
       return "first";
     }
     return null;
@@ -466,6 +466,10 @@
     if (!("completedCycles" in challenge)) challenge.completedCycles = 0;
     if (!("pendingStartMode" in challenge)) challenge.pendingStartMode = null;
     if (!["reset", "completed"].includes(challenge.pendingStartMode)) challenge.pendingStartMode = null;
+    if (!challenge.isActive && challenge.pendingStartMode === null) {
+      challenge.startDate = null;
+      challenge.lastEvaluatedDate = null;
+    }
     renderNotesPanel();
   }
 
