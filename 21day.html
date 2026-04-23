@@ -183,6 +183,19 @@
     </div>
   </div>
 
+  <div class="glass-panel mb-8 p-5">
+    <div class="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 class="flex items-center gap-2 text-xl font-bold"><i class="fas fa-timeline text-cyan-700"></i> История 21 дней</h2>
+        <p class="mt-1 text-sm text-slate-600">Каждый день цикла показывает свой статус: пройден, провален, в процессе или впереди.</p>
+      </div>
+      <div id="cycleHistorySummary" class="text-sm text-slate-600"></div>
+    </div>
+    <div id="cycleHistoryGrid" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div class="rounded-2xl border border-slate-200 bg-white/90 px-4 py-5 text-sm text-slate-500">История цикла появится после старта.</div>
+    </div>
+  </div>
+
   <!-- MAIN: TASKS + ANALYTICS -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-7">
     <!-- LEFT COL: ADD TASK + TODAY'S TASKS -->
@@ -1160,6 +1173,91 @@
     return { completed, total: tasks.length, percent, passed: percent >= 80 };
   }
 
+  function getCycleHistoryEntries() {
+    return Array.from({ length: 21 }, (_, index) => {
+      const dayNumber = index + 1;
+      const dateStr = challenge.startDate ? addDaysToDateStr(challenge.startDate, index) : null;
+      const summary = dateStr ? getDayCompletion(dateStr) : { completed: 0, total: 0, percent: 0, passed: false };
+      const dayMeta = dateStr ? (completions[dateStr] || {}) : {};
+      let status = "not_started";
+      let label = "ожидает старт";
+
+      if (dateStr) {
+        if (dayMeta._evaluated) {
+          status = dayMeta._failed ? "failed" : "passed";
+          label = dayMeta._failed ? "провален" : "пройден";
+        } else if (dateStr === todayStr()) {
+          status = "today";
+          label = summary.total > 0 ? `в процессе ${Math.round(summary.percent)}%` : "сегодня без задач";
+        } else if (dateStr < todayStr()) {
+          status = "pending_review";
+          label = "ждет оценки";
+        } else {
+          status = "upcoming";
+          label = "впереди";
+        }
+      } else if (challenge.pendingStartMode) {
+        status = "planned";
+        label = "дата не выбрана";
+      }
+
+      return { dayNumber, dateStr, summary, status, label };
+    });
+  }
+
+  function renderCycleHistory() {
+    const grid = document.getElementById("cycleHistoryGrid");
+    const summary = document.getElementById("cycleHistorySummary");
+    if (!grid || !summary) return;
+
+    const entries = getCycleHistoryEntries();
+    const passedCount = entries.filter(entry => entry.status === "passed").length;
+    const failedCount = entries.filter(entry => entry.status === "failed").length;
+    const inProgressCount = entries.filter(entry => entry.status === "today").length;
+
+    summary.textContent = challenge.startDate
+      ? `Пройдено: ${passedCount} · Провалено: ${failedCount} · Активно сейчас: ${inProgressCount}`
+      : (challenge.pendingStartMode ? "Цикл подготовлен, но дата старта ещё не зафиксирована." : "Цикл ещё не запускался.");
+
+    const palette = {
+      passed: "border-emerald-200 bg-emerald-50 text-emerald-900",
+      failed: "border-rose-200 bg-rose-50 text-rose-900",
+      today: "border-cyan-200 bg-cyan-50 text-cyan-900",
+      pending_review: "border-amber-200 bg-amber-50 text-amber-900",
+      upcoming: "border-slate-200 bg-white text-slate-700",
+      planned: "border-slate-200 bg-slate-50 text-slate-600",
+      not_started: "border-slate-200 bg-slate-50 text-slate-500"
+    };
+
+    const badges = {
+      passed: "Пройден",
+      failed: "Провал",
+      today: "Сегодня",
+      pending_review: "Оценка",
+      upcoming: "Впереди",
+      planned: "План",
+      not_started: "Ожидание"
+    };
+
+    grid.innerHTML = entries.map(entry => `
+      <div class="rounded-2xl border px-4 py-4 ${palette[entry.status]}" title="${entry.label}">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-[0.2em] opacity-70">День ${entry.dayNumber}</div>
+            <div class="mt-2 text-sm font-semibold">${entry.dateStr ? formatDisplayDate(entry.dateStr) : "дата не выбрана"}</div>
+          </div>
+          <span class="rounded-full bg-white/80 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.16em]">${badges[entry.status]}</span>
+        </div>
+        <div class="mt-3 text-sm">${entry.label}</div>
+        <div class="mt-3 flex flex-wrap gap-3 text-xs opacity-80">
+          <span>задач: ${entry.summary.total}</span>
+          <span>выполнено: ${entry.summary.completed}</span>
+          <span>${Math.round(entry.summary.percent)}%</span>
+        </div>
+      </div>
+    `).join("");
+  }
+
   function evaluateDay(dateStr) {
     const dayIdx = getChallengeDayIndex(dateStr);
     if (dayIdx === -1) return { evaluated:false, failed:false, reset:false };
@@ -1657,6 +1755,7 @@
   function renderEverything() {
     if (!currentSupabaseUser) {
       renderHeaderStats();
+      renderCycleHistory();
       renderNotesPanel();
       renderCycleStartPlanner();
       return;
@@ -1665,6 +1764,7 @@
     evaluateTodayIfComplete();
     celebrateCycleCompletion();
     renderHeaderStats();
+    renderCycleHistory();
     renderCycleStartPlanner();
     renderTodayTasks();
     renderNotesPanel();
