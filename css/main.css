@@ -1,0 +1,72 @@
+@charset "UTF-8";
+
+* { font-family: 'Inter', sans-serif; }
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(45, 212, 191, 0.18), transparent 30%),
+        radial-gradient(circle at top right, rgba(34, 211, 238, 0.16), transparent 32%),
+        linear-gradient(180deg, #f7fbff 0%, #edf6f7 48%, #f8fafc 100%);
+      min-height: 100vh;
+      color: #0f172a;
+    }
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(18px);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 2rem;
+      box-shadow: 0 18px 40px -22px rgba(15, 23, 42, 0.22);
+    }
+    .task-card {
+      transition: all 0.2s;
+      border-left: 3px solid;
+    }
+    .task-card:hover { transform: translateX(5px); background: rgba(240, 249, 255, 0.98); }
+    .category-badge {
+      background: rgba(207, 250, 254, 0.95);
+      color: #0f766e;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.2rem 0.6rem;
+      border-radius: 40px;
+    }
+    .category-btn {
+      transition: 0.1s linear;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      color: #334155;
+      background: rgba(255, 255, 255, 0.92);
+    }
+    .category-btn.active {
+      background: linear-gradient(135deg, #0f766e, #0891b2);
+      border-color: #14b8a6;
+      color: white;
+      box-shadow: 0 10px 24px -14px rgba(8, 145, 178, 0.65);
+    }
+    .motivation-snack {
+      background: rgba(255, 255, 255, 0.95);
+      color: #0f172a;
+      border-left: 6px solid #14b8a6;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 18px 40px -24px rgba(15, 23, 42, 0.32);
+    }
+    button:active { transform: scale(0.96); }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb { background: #14b8a6; border-radius: 10px; }
+    .progress-glow {
+      background: linear-gradient(90deg, #14b8a6, #0f766e);
+    }
+    input, textarea {
+      color: #0f172a;
+    }
+    input::placeholder, textarea::placeholder {
+      color: #94a3b8;
+    }
+
+    @media (max-width: 640px) {
+      #motivationToast {
+        left: 1rem;
+        right: 1rem;
+        bottom: 1rem;
+        max-width: none;
+      }
+    }
