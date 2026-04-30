@@ -5,6 +5,17 @@
   const APP_STATE_VERSION = 2;
 
   const CATEGORIES = ["Work", "Family", "Health", "Learning", "Finance", "Other"];
+  const FAILURE_REASONS = [
+    { key: "laziness", label: "Ленивость", icon: "fa-person-walking" },
+    { key: "no_time", label: "Не было времени", icon: "fa-clock" },
+    { key: "tired", label: "Устал(а)", icon: "fa-battery-quarter" },
+    { key: "sick", label: "Плохое самочувствие", icon: "fa-notes-medical" },
+    { key: "forgot", label: "Забыл(а)", icon: "fa-brain" },
+    { key: "stress", label: "Стресс / перегруз", icon: "fa-fire" },
+    { key: "no_plan", label: "Не было плана", icon: "fa-list-ul" },
+    { key: "distractions", label: "Отвлекся(лась)", icon: "fa-bell" },
+    { key: "other", label: "Другое", icon: "fa-ellipsis" }
+  ];
   const CATEGORY_ICONS = {
     Work:'<i class="fas fa-briefcase"></i>',
     Family:'<i class="fas fa-house-user"></i>',
@@ -34,17 +45,9 @@
   let customTasks = [];
   let completions = {};
   let notes = [];
-  let challenge = {
-    startDate: null,
-    failedDaysCount: 0,
-    lastEvaluatedDate: null,
-    isActive: false,
-    lastCycleCelebrated: null,
-    completedCycles: 0,
-    pendingStartMode: null
-  };
+  let challenge = createEmptyChallenge();
 
-  let categoryChart, weeklyChart;
+  let categoryChart, weeklyChart, failureReasonChart, priorityChart, failureReasonTrendChart;
   let currentSelectedCategory = "Work";
   const sentReminderKeys = new Set();
   let supabaseMeta = { lastRemoteUpdatedAt: null };
@@ -54,6 +57,10 @@
   let suppressCloudSync = false;
   let activeStudyNoteId = null;
   let isStudyAnswerVisible = false;
+  let isStudyModalOpen = false;
+  const DEFAULT_ACTIVE_VIEW = "today";
+  const ACTIVE_VIEWS = new Set(["today", "tomorrow", "stats"]);
+  let activeView = DEFAULT_ACTIVE_VIEW;
   let activeFailureReasonDate = null;
   let dismissedFailureReasonDate = null;
 
@@ -120,22 +127,36 @@
     return Math.min(diff + 1, 21);
   }
 
-  function resetAppState() {
-    templates = [];
-    customTasks = [];
-    completions = {};
-    notes = [];
-    challenge = {
+  function createEmptyChallenge() {
+    return {
       startDate: null,
       failedDaysCount: 0,
       lastEvaluatedDate: null,
       isActive: false,
       lastCycleCelebrated: null,
       completedCycles: 0,
-      pendingStartMode: null
+      pendingStartMode: null,
+      xp: 0,
+      currentStreak: 0,
+      maxStreak: 0
     };
+  }
+
+  function normalizeActiveView(view) {
+    return ACTIVE_VIEWS.has(view) ? view : DEFAULT_ACTIVE_VIEW;
+  }
+
+  function resetAppState() {
+    templates = [];
+    customTasks = [];
+    completions = {};
+    notes = [];
+    challenge = createEmptyChallenge();
     activeStudyNoteId = null;
     isStudyAnswerVisible = false;
+    isStudyModalOpen = false;
+    document.getElementById("studyModal")?.classList.add("hidden");
+    document.body.classList.remove("overflow-hidden");
     activeFailureReasonDate = null;
     dismissedFailureReasonDate = null;
   }
@@ -144,17 +165,20 @@
     if (!Array.isArray(templates)) templates = [];
     if (!Array.isArray(customTasks)) customTasks = [];
     if (!Array.isArray(notes)) notes = [];
+    notes = notes.map(note => {
+      if (!note || typeof note !== "object") return null;
+      const safe = { ...note };
+      if (!Array.isArray(safe.tags)) safe.tags = [];
+      safe.tags = safe.tags.map(tag => String(tag || "").trim()).filter(Boolean).slice(0, 12);
+      if (safe.nextReviewAt && Number.isNaN(new Date(safe.nextReviewAt).getTime())) {
+        safe.nextReviewAt = null;
+      }
+      if (!safe.nextReviewAt) safe.nextReviewAt = new Date().toISOString();
+      return safe;
+    }).filter(Boolean);
     if (!completions || typeof completions !== "object") completions = {};
     if (!challenge || typeof challenge !== "object") {
-      challenge = {
-        startDate: null,
-        failedDaysCount: 0,
-        lastEvaluatedDate: null,
-        isActive: false,
-        lastCycleCelebrated: null,
-        completedCycles: 0,
-        pendingStartMode: null
-      };
+      challenge = createEmptyChallenge();
     }
     delete completions.undefined;
     Object.keys(completions).forEach(key => {
@@ -163,6 +187,12 @@
         return;
       }
       if (!completions[key] || typeof completions[key] !== "object") completions[key] = {};
+      if (typeof completions[key]._failureReasonKey === "string") {
+        completions[key]._failureReasonKey = completions[key]._failureReasonKey.trim();
+        if (!completions[key]._failureReasonKey) delete completions[key]._failureReasonKey;
+      } else {
+        delete completions[key]._failureReasonKey;
+      }
       if (typeof completions[key]._failureReason === "string") {
         completions[key]._failureReason = completions[key]._failureReason.trim();
         if (!completions[key]._failureReason) delete completions[key]._failureReason;
@@ -176,6 +206,9 @@
     if (!("lastCycleCelebrated" in challenge)) challenge.lastCycleCelebrated = null;
     if (!("completedCycles" in challenge)) challenge.completedCycles = 0;
     if (!("pendingStartMode" in challenge)) challenge.pendingStartMode = null;
+    challenge.xp = Number.isFinite(Number(challenge.xp)) ? Math.max(0, Number(challenge.xp)) : 0;
+    challenge.currentStreak = Number.isFinite(Number(challenge.currentStreak)) ? Math.max(0, Number(challenge.currentStreak)) : 0;
+    challenge.maxStreak = Number.isFinite(Number(challenge.maxStreak)) ? Math.max(0, Number(challenge.maxStreak)) : 0;
     if (!["reset", "completed"].includes(challenge.pendingStartMode)) challenge.pendingStartMode = null;
     if (!challenge.isActive && challenge.pendingStartMode === null) {
       challenge.startDate = null;
@@ -223,12 +256,15 @@
     const appContent = document.getElementById("appContent");
     const headerAccountCard = document.getElementById("headerAccountCard");
     const headerUserEmail = document.getElementById("headerUserEmail");
+    const headerGamificationBadge = document.getElementById("headerGamificationBadge");
 
     authScreen?.classList.toggle("hidden", isLoggedIn);
     appHeader?.classList.toggle("hidden", !isLoggedIn);
     appHeader?.classList.toggle("flex", isLoggedIn);
     appContent?.classList.toggle("hidden", !isLoggedIn);
     headerAccountCard?.classList.toggle("hidden", !isLoggedIn);
+    headerGamificationBadge?.classList.toggle("hidden", !isLoggedIn);
+    headerGamificationBadge?.classList.toggle("flex", isLoggedIn);
 
     if (headerUserEmail) {
       headerUserEmail.textContent = isLoggedIn
@@ -249,6 +285,7 @@
       "supabaseRegisterBtn",
       "supabaseLoginBtn",
       "supabaseLogoutBtn",
+      "headerRestartCycleBtn",
       "headerLogoutBtn"
     ];
 
@@ -266,6 +303,7 @@
     const registerBtn = document.getElementById("supabaseRegisterBtn");
     const loginBtn = document.getElementById("supabaseLoginBtn");
     const logoutBtn = document.getElementById("supabaseLogoutBtn");
+    const restartCycleBtn = document.getElementById("headerRestartCycleBtn");
     const noteTitleInput = document.getElementById("noteTitle");
     const noteContentInput = document.getElementById("noteContent");
     const addNoteBtn = document.getElementById("addNoteBtn");
@@ -274,6 +312,7 @@
     if (registerBtn) registerBtn.disabled = false;
     if (loginBtn) loginBtn.disabled = false;
     if (logoutBtn) logoutBtn.disabled = false;
+    if (restartCycleBtn) restartCycleBtn.disabled = !currentSupabaseUser;
     if (noteTitleInput) noteTitleInput.disabled = !currentSupabaseUser;
     if (noteContentInput) noteContentInput.disabled = !currentSupabaseUser;
     if (addNoteBtn) addNoteBtn.disabled = !currentSupabaseUser;
@@ -304,21 +343,16 @@
     }, 900);
   }
 
-  function saveTemplates() {
+  function saveRemoteState() {
     scheduleSupabaseSync();
   }
-  function saveCustom() {
-    scheduleSupabaseSync();
-  }
-  function saveCompletions() {
-    scheduleSupabaseSync();
-  }
-  function saveNotes() {
-    scheduleSupabaseSync();
-  }
-  function saveChallenge() {
-    scheduleSupabaseSync();
-  }
+  const saveTemplates = saveRemoteState;
+  const saveCustom = saveRemoteState;
+  const saveCompletions = saveRemoteState;
+  const saveNotes = saveRemoteState;
+  const saveChallenge = saveRemoteState;
+  const savePreferences = saveRemoteState;
+
   function createStatePayload() {
     return {
       version: APP_STATE_VERSION,
@@ -328,7 +362,10 @@
         customTasks,
         completions,
         notes,
-        challenge
+        challenge,
+        preferences: {
+          activeView
+        }
       }
     };
   }
@@ -570,11 +607,13 @@
     notes = Array.isArray(source.notes) ? source.notes : [];
     challenge = source.challenge && typeof source.challenge === "object"
       ? source.challenge
-      : { startDate: null, failedDaysCount: 0, lastEvaluatedDate: null, isActive: false, lastCycleCelebrated: null, completedCycles: 0, pendingStartMode: null };
+      : createEmptyChallenge();
+    const preferences = source.preferences && typeof source.preferences === "object" ? source.preferences : {};
 
     sanitizeStoredState();
     renderCategoryButtons();
     renderEverything();
+    setActiveView(preferences.activeView, { sync: false });
     if (toastMessage) showMotivation(toastMessage);
   }
 
@@ -589,26 +628,120 @@
     return escapeHtml(text || "").replace(/\n/g, "<br>");
   }
 
+  function getFailureReasonOption(key) {
+    return FAILURE_REASONS.find(option => option.key === key) || null;
+  }
+
+  function normalizeFailureReasonKey(value) {
+    const trimmed = (value || "").trim();
+    if (!trimmed) return "";
+    const direct = getFailureReasonOption(trimmed);
+    if (direct) return direct.key;
+    const byLabel = FAILURE_REASONS.find(option => option.label.toLowerCase() === trimmed.toLowerCase());
+    return byLabel ? byLabel.key : "";
+  }
+
+  function getFailureReasonLabel(dateStr) {
+    const entry = completions?.[dateStr] || {};
+    const key = typeof entry._failureReasonKey === "string" ? entry._failureReasonKey.trim() : "";
+    if (key) return getFailureReasonOption(key)?.label || "Другое";
+    const legacy = typeof entry._failureReason === "string" ? entry._failureReason.trim() : "";
+    return legacy;
+  }
+
+  function getFailureReasonKey(dateStr) {
+    const entry = completions?.[dateStr] || {};
+    const key = typeof entry._failureReasonKey === "string" ? entry._failureReasonKey.trim() : "";
+    if (key) return key;
+    const legacy = typeof entry._failureReason === "string" ? entry._failureReason.trim() : "";
+    return normalizeFailureReasonKey(legacy);
+  }
+
   function getFailureReason(dateStr) {
-    const value = completions?.[dateStr]?._failureReason;
-    return typeof value === "string" ? value.trim() : "";
+    return getFailureReasonLabel(dateStr) || "";
   }
 
   function saveFailureReason(dateStr, reason) {
     if (!dateStr || !completions[dateStr]) return;
-    const normalizedReason = (reason || "").trim();
-    if (normalizedReason) {
-      completions[dateStr]._failureReason = normalizedReason;
+    const raw = (reason || "").trim();
+    const key = normalizeFailureReasonKey(raw) || raw;
+    const option = getFailureReasonOption(key);
+    if (option) {
+      completions[dateStr]._failureReasonKey = option.key;
+      completions[dateStr]._failureReason = option.label;
+      completions[dateStr]._failureReasonUpdatedAt = new Date().toISOString();
+    } else if (raw) {
+      // legacy free text (keep for backward compatibility)
+      completions[dateStr]._failureReason = raw;
+      delete completions[dateStr]._failureReasonKey;
       completions[dateStr]._failureReasonUpdatedAt = new Date().toISOString();
     } else {
       delete completions[dateStr]._failureReason;
+      delete completions[dateStr]._failureReasonKey;
       delete completions[dateStr]._failureReasonUpdatedAt;
     }
     saveCompletions();
   }
 
+  function setActiveView(view, options = {}) {
+    const { sync = true } = options;
+    activeView = normalizeActiveView(view);
+    if (sync) savePreferences();
+
+    const todayViewEl = document.getElementById("todayView");
+    const tomorrowViewEl = document.getElementById("tomorrowView");
+    const statsViewEl = document.getElementById("statsView");
+    todayViewEl?.classList.toggle("hidden", activeView !== "today");
+    tomorrowViewEl?.classList.toggle("hidden", activeView !== "tomorrow");
+    statsViewEl?.classList.toggle("hidden", activeView !== "stats");
+
+    const todayBtn = document.getElementById("navTodayBottomBtn");
+    const tomorrowBtn = document.getElementById("navTomorrowBottomBtn");
+    const statsBtn = document.getElementById("navStatsBottomBtn");
+
+    if (todayBtn && tomorrowBtn && statsBtn) {
+      [todayBtn, tomorrowBtn, statsBtn].forEach(btn => btn.classList.remove("active"));
+      if (activeView === "today") todayBtn.classList.add("active");
+      else if (activeView === "tomorrow") tomorrowBtn.classList.add("active");
+      else if (activeView === "stats") statsBtn.classList.add("active");
+    }
+
+    if (activeView === "stats") {
+      window.setTimeout(() => {
+        try { renderAnalytics(); } catch (_) {}
+      }, 0);
+    }
+    if (activeView === "tomorrow") {
+      window.setTimeout(() => {
+        try { renderTomorrowTasks(); } catch (_) {}
+      }, 0);
+    }
+  }
+
   function getNoteById(noteId) {
     return notes.find(note => note.id === noteId) || null;
+  }
+
+  function normalizeTagsInput(raw) {
+    return (raw || "")
+      .split(",")
+      .map(value => value.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+  }
+
+  function getNotesSearchQuery() {
+    return (document.getElementById("notesSearch")?.value || "").trim().toLowerCase();
+  }
+
+  function noteMatchesQuery(note, query) {
+    if (!query) return true;
+    const hay = [
+      note.title || "",
+      note.content || "",
+      Array.isArray(note.tags) ? note.tags.join(" ") : ""
+    ].join(" ").toLowerCase();
+    return hay.includes(query);
   }
 
   function addNote() {
@@ -617,9 +750,11 @@
       return;
     }
     const titleInput = document.getElementById("noteTitle");
+    const tagsInput = document.getElementById("noteTags");
     const contentInput = document.getElementById("noteContent");
     const title = titleInput?.value.trim() || "";
     const content = contentInput?.value.trim() || "";
+    const tags = normalizeTagsInput(tagsInput?.value || "");
 
     if (!title || !content) {
       showMotivation("Заполни заголовок и текст заметки.");
@@ -630,16 +765,44 @@
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       title,
       content,
+      tags,
       createdAt: new Date().toISOString(),
       lastReviewedAt: null,
-      reviewCount: 0
+      reviewCount: 0,
+      nextReviewAt: new Date().toISOString()
     });
 
     saveNotes();
     if (titleInput) titleInput.value = "";
+    if (tagsInput) tagsInput.value = "";
     if (contentInput) contentInput.value = "";
     renderNotesPanel();
     showMotivation("Заметка сохранена.");
+  }
+
+  function editNote(noteId) {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
+    const note = getNoteById(noteId);
+    if (!note) return;
+    const newTitle = prompt("Заголовок заметки:", note.title || "");
+    if (newTitle === null) return;
+    const newTags = prompt("Теги (через запятую):", Array.isArray(note.tags) ? note.tags.join(", ") : "");
+    if (newTags === null) return;
+    const newContent = prompt("Текст заметки:", note.content || "");
+    if (newContent === null) return;
+    if (!newTitle.trim() || !newContent.trim()) {
+      showMotivation("Заголовок и текст не могут быть пустыми.");
+      return;
+    }
+    note.title = newTitle.trim();
+    note.tags = normalizeTagsInput(newTags);
+    note.content = newContent.trim();
+    saveNotes();
+    renderNotesPanel();
+    showMotivation("Заметка обновлена.");
   }
 
   function deleteNote(noteId) {
@@ -657,6 +820,43 @@
     showMotivation("Заметка удалена.");
   }
 
+  function openStudyModal() {
+    isStudyModalOpen = true;
+    document.getElementById("studyModal")?.classList.remove("hidden");
+    document.body.classList.add("overflow-hidden");
+  }
+
+  function closeStudyModal() {
+    isStudyModalOpen = false;
+    document.getElementById("studyModal")?.classList.add("hidden");
+    document.body.classList.remove("overflow-hidden");
+  }
+
+  function renderStudyModal() {
+    if (!isStudyModalOpen || !activeStudyNoteId) return;
+    const note = getNoteById(activeStudyNoteId);
+    if (!note) return;
+
+    const title = document.getElementById("studyModalTitle");
+    const body = document.getElementById("studyModalBody");
+    const meta = document.getElementById("studyModalMeta");
+    if (title) title.textContent = note.title || "Без названия";
+    if (body) {
+      body.innerHTML = isStudyAnswerVisible
+        ? formatTextWithBreaks(note.content)
+        : '<span class="text-slate-500">Попробуй сначала вспомнить заметку сам, затем нажми “Показать”.</span>';
+    }
+    if (meta) {
+      const next = note.nextReviewAt ? formatDateTimeDisplay(note.nextReviewAt) : "—";
+      meta.textContent = `Повторений: ${Number(note.reviewCount || 0)} · Последний раз: ${note.lastReviewedAt ? formatDateTimeDisplay(note.lastReviewedAt) : "ещё не повторял"} · Следующее повторение: ${next}`;
+    }
+
+    const revealBtn = document.getElementById("studyRevealBtn");
+    const difficultyRow = document.getElementById("studyDifficultyRow");
+    if (revealBtn) revealBtn.classList.toggle("hidden", isStudyAnswerVisible);
+    if (difficultyRow) difficultyRow.classList.toggle("hidden", !isStudyAnswerVisible);
+  }
+
   function startStudyNote(noteId = null) {
     if (!currentSupabaseUser) {
       showMotivation("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0432\u043e\u0439\u0434\u0438 \u0432 \u0430\u043a\u043a\u0430\u0443\u043d\u0442.");
@@ -668,19 +868,27 @@
     }
 
     if (!noteId) {
-      const randomNote = notes[Math.floor(Math.random() * notes.length)];
+      const now = Date.now();
+      const dueNotes = notes.filter(note => {
+        if (!note || !note.id) return false;
+        const nextAt = note.nextReviewAt ? new Date(note.nextReviewAt).getTime() : 0;
+        return Number.isFinite(nextAt) ? nextAt <= now : true;
+      });
+      const pool = dueNotes.length ? dueNotes : notes;
+      const randomNote = pool[Math.floor(Math.random() * pool.length)];
       noteId = randomNote.id;
     }
 
     activeStudyNoteId = noteId;
     isStudyAnswerVisible = false;
-    renderNotesPanel();
+    openStudyModal();
+    renderStudyModal();
   }
 
   function revealStudyNote() {
     if (!activeStudyNoteId) return;
     isStudyAnswerVisible = true;
-    renderNotesPanel();
+    renderStudyModal();
   }
 
   function markNoteReviewed(noteId) {
@@ -694,8 +902,33 @@
     note.reviewCount = Number(note.reviewCount || 0) + 1;
     saveNotes();
     isStudyAnswerVisible = false;
-    renderNotesPanel();
+    renderStudyModal();
     showMotivation("Повторение заметки отмечено.");
+  }
+
+  function scheduleNextReview(note, difficulty) {
+    const now = new Date();
+    const days = difficulty === "easy" ? 7 : difficulty === "hard" ? 1 : 3;
+    const next = new Date(now);
+    next.setDate(next.getDate() + days);
+    note.nextReviewAt = next.toISOString();
+  }
+
+  function markNoteReviewedWithDifficulty(noteId, difficulty = "normal") {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
+    const note = getNoteById(noteId);
+    if (!note) return;
+    note.lastReviewedAt = new Date().toISOString();
+    note.reviewCount = Number(note.reviewCount || 0) + 1;
+    scheduleNextReview(note, difficulty);
+    saveNotes();
+    isStudyAnswerVisible = false;
+    renderStudyModal();
+    renderNotesPanel();
+    showMotivation("Повторение отмечено.");
   }
 
   function renderNotesPanel() {
@@ -712,38 +945,21 @@
       return;
     }
 
-    const activeNote = activeStudyNoteId ? getNoteById(activeStudyNoteId) : null;
-    if (!activeNote) {
-      studyCard.classList.add("hidden");
-      studyCard.innerHTML = "";
-    } else {
-      studyCard.classList.remove("hidden");
-      studyCard.innerHTML = `
-        <div class="flex flex-col gap-3">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div class="text-xs uppercase tracking-[0.22em] text-cyan-700">Режим учёбы</div>
-              <h3 class="mt-2 text-lg font-bold text-slate-900">${escapeHtml(activeNote.title)}</h3>
-            </div>
-            <div class="text-xs text-slate-500">Повторений: ${Number(activeNote.reviewCount || 0)}</div>
-          </div>
-          <div class="rounded-2xl border border-slate-200 bg-white/85 p-4 text-sm leading-6 text-slate-700">
-            ${isStudyAnswerVisible ? formatTextWithBreaks(activeNote.content) : '<span class="text-slate-500">Попробуй сначала вспомнить заметку сам, затем открой текст.</span>'}
-          </div>
-          <div class="flex flex-wrap gap-2">
-            ${isStudyAnswerVisible
-              ? `<button type="button" class="mark-note-reviewed-btn rounded-xl bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-500" data-note-id="${activeNote.id}"><i class="fas fa-check mr-2"></i>Повторил</button>`
-              : `<button type="button" id="revealStudyNoteBtn" class="rounded-xl bg-cyan-700 px-4 py-2 font-semibold text-white hover:bg-cyan-600"><i class="fas fa-eye mr-2"></i>Показать заметку</button>`}
-            <button type="button" id="nextStudyNoteBtn" class="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 font-semibold text-cyan-700 hover:bg-cyan-100"><i class="fas fa-shuffle mr-2"></i>Другая заметка</button>
-          </div>
-        </div>
-      `;
-    }
+    // Study is rendered in a fullscreen modal so that notes list isn't visible underneath.
+    studyCard.classList.add("hidden");
+    studyCard.innerHTML = "";
 
-    if (notes.length === 0) {
-      container.innerHTML = `<div class="text-center py-8 text-slate-500">Заметок пока нет.</div>`;
+    const query = getNotesSearchQuery();
+    const filteredNotes = notes.filter(note => noteMatchesQuery(note, query));
+
+    if (filteredNotes.length === 0) {
+      if (notes.length === 0) {
+        container.innerHTML = `<div class="text-center py-8 text-slate-500">Заметок пока нет.</div>`;
+      } else {
+        container.innerHTML = `<div class="text-center py-8 text-slate-500">Ничего не найдено по запросу.</div>`;
+      }
     } else {
-      container.innerHTML = notes.map(note => `
+      container.innerHTML = filteredNotes.map(note => `
         <div class="rounded-2xl border border-slate-200 bg-white/90 p-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
@@ -751,6 +967,10 @@
                 <h3 class="font-semibold text-slate-900">${escapeHtml(note.title)}</h3>
                 <span class="category-badge">повторений: ${Number(note.reviewCount || 0)}</span>
               </div>
+              ${Array.isArray(note.tags) && note.tags.length
+                ? `<div class="mt-2 flex flex-wrap gap-2">${note.tags.map(tag => `<span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">#${escapeHtml(tag)}</span>`).join("")}</div>`
+                : ""
+              }
               <div class="mt-2 text-sm leading-6 text-slate-700 whitespace-pre-line">${formatTextWithBreaks(note.content)}</div>
               <div class="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
                 <span><i class="far fa-calendar-plus mr-1"></i>${formatDateTimeDisplay(note.createdAt)}</span>
@@ -759,6 +979,7 @@
             </div>
             <div class="flex gap-2">
               <button type="button" class="study-note-btn rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-700 hover:bg-cyan-100" data-note-id="${note.id}"><i class="fas fa-book-open mr-1"></i>Учить</button>
+              <button type="button" class="edit-note-btn rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" data-note-id="${note.id}"><i class="fas fa-pen mr-1"></i>Изменить</button>
               <button type="button" class="delete-note-btn rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100" data-note-id="${note.id}"><i class="fas fa-trash-alt mr-1"></i>Удалить</button>
             </div>
           </div>
@@ -766,8 +987,6 @@
       `).join("");
     }
 
-    document.getElementById("revealStudyNoteBtn")?.addEventListener("click", revealStudyNote);
-    document.getElementById("nextStudyNoteBtn")?.addEventListener("click", () => startStudyNote());
     document.querySelectorAll(".study-note-btn").forEach(button => {
       button.addEventListener("click", () => startStudyNote(button.dataset.noteId));
     });
@@ -776,8 +995,8 @@
         if (confirm("Удалить эту заметку?")) deleteNote(button.dataset.noteId);
       });
     });
-    document.querySelectorAll(".mark-note-reviewed-btn").forEach(button => {
-      button.addEventListener("click", () => markNoteReviewed(button.dataset.noteId));
+    document.querySelectorAll(".edit-note-btn").forEach(button => {
+      button.addEventListener("click", () => editNote(button.dataset.noteId));
     });
   }
   function initNewChallenge(resetCompletions = true, offsetDays = 0) {
@@ -879,6 +1098,8 @@
             time: t.time,
             category: t.category,
             description: t.description,
+            priority: t.priority || "medium",
+            estimateMin: typeof t.estimateMin === "number" ? t.estimateMin : null,
             isRecurring: true,
             date: dateStr
           });
@@ -895,12 +1116,19 @@
           time: c.time,
           category: c.category,
           description: c.description,
+          priority: c.priority || "medium",
+          estimateMin: typeof c.estimateMin === "number" ? c.estimateMin : null,
           isRecurring: false,
           date: dateStr
         });
       }
     });
-    tasks.sort((a,b) => (a.time || "23:59").localeCompare(b.time || "23:59"));
+    const priorityWeight = priority => (priority === "high" ? 0 : priority === "medium" ? 1 : 2);
+    tasks.sort((a, b) => {
+      const pr = priorityWeight(a.priority) - priorityWeight(b.priority);
+      if (pr !== 0) return pr;
+      return (a.time || "23:59").localeCompare(b.time || "23:59");
+    });
     return tasks;
   }
 
@@ -982,6 +1210,7 @@
 
     grid.innerHTML = entries.map(entry => {
       const failureReason = entry.dateStr ? getFailureReason(entry.dateStr) : "";
+      const failureReasonKey = entry.dateStr ? getFailureReasonKey(entry.dateStr) : "";
       const isFailureReasonOpen = entry.status === "failed" && activeFailureReasonDate === entry.dateStr;
       let failureReasonMarkup = "";
 
@@ -995,13 +1224,21 @@
                   ${isFailureReasonOpen ? "Скрыть" : "Изменить"}
                 </button>
               </div>
-              <div class="mt-2 whitespace-pre-line text-sm leading-6 text-rose-950">${formatTextWithBreaks(failureReason)}</div>
+              <div class="mt-2 text-sm font-semibold text-rose-950">${escapeHtml(failureReason)}</div>
               ${isFailureReasonOpen ? `
                 <div class="mt-3">
-                  <textarea class="failure-reason-input w-full rounded-2xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-rose-300" rows="3" data-date="${entry.dateStr}">${escapeHtml(failureReason)}</textarea>
-                  <div class="mt-2 flex flex-wrap gap-2">
-                    <button type="button" class="save-failure-reason-btn rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700" data-date="${entry.dateStr}">Сохранить</button>
-                    <button type="button" class="clear-failure-reason-btn rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-date="${entry.dateStr}">Удалить</button>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    ${FAILURE_REASONS.map(option => `
+                      <button type="button"
+                        class="failure-reason-pick-btn rounded-2xl border px-3 py-2 text-left text-xs font-semibold transition ${option.key === failureReasonKey ? "border-rose-300 bg-rose-50 text-rose-800" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}"
+                        data-date="${entry.dateStr}"
+                        data-reason="${option.key}">
+                        <i class="fas ${option.icon} mr-2"></i>${option.label}
+                      </button>
+                    `).join("")}
+                  </div>
+                  <div class="mt-2">
+                    <button type="button" class="clear-failure-reason-btn rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-date="${entry.dateStr}">Удалить причину</button>
                   </div>
                 </div>
               ` : ""}
@@ -1011,16 +1248,24 @@
           failureReasonMarkup = `
             <div class="mt-4 rounded-2xl border border-dashed border-rose-300 bg-white/75 p-3">
               <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="text-sm text-rose-900">Запиши, почему день сорвался, чтобы не повторить это в следующем цикле.</div>
+                <div class="text-sm text-rose-900">Выбери причину провала (без текста), чтобы отслеживать статистику.</div>
                 <button type="button" class="failure-reason-toggle-btn rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100" data-date="${entry.dateStr}">
                   ${isFailureReasonOpen ? "Скрыть" : "Указать причину"}
                 </button>
               </div>
               ${isFailureReasonOpen ? `
                 <div class="mt-3">
-                  <textarea class="failure-reason-input w-full rounded-2xl border border-rose-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-rose-300" rows="3" data-date="${entry.dateStr}" placeholder="Что именно сорвало день: перегруз, отсутствие плана, поздний старт, отвлечение, усталость..."></textarea>
-                  <div class="mt-2 flex flex-wrap gap-2">
-                    <button type="button" class="save-failure-reason-btn rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700" data-date="${entry.dateStr}">Сохранить</button>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    ${FAILURE_REASONS.map(option => `
+                      <button type="button"
+                        class="failure-reason-pick-btn rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        data-date="${entry.dateStr}"
+                        data-reason="${option.key}">
+                        <i class="fas ${option.icon} mr-2"></i>${option.label}
+                      </button>
+                    `).join("")}
+                  </div>
+                  <div class="mt-2">
                     <button type="button" class="dismiss-failure-reason-btn rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50" data-date="${entry.dateStr}">Позже</button>
                   </div>
                 </div>
@@ -1068,20 +1313,17 @@
       });
     });
 
-    grid.querySelectorAll(".save-failure-reason-btn").forEach(button => {
+    grid.querySelectorAll(".failure-reason-pick-btn").forEach(button => {
       button.addEventListener("click", () => {
         const dateStr = button.dataset.date;
-        const input = grid.querySelector(`.failure-reason-input[data-date="${dateStr}"]`);
-        const value = input?.value || "";
-        if (!value.trim()) {
-          showMotivation("Напиши хотя бы короткую причину провала.");
-          return;
-        }
-        saveFailureReason(dateStr, value);
+        const reasonKey = button.dataset.reason;
+        if (!dateStr || !reasonKey) return;
+        saveFailureReason(dateStr, reasonKey);
         activeFailureReasonDate = null;
         dismissedFailureReasonDate = null;
         showMotivation("Причина провала сохранена.");
         renderCycleHistory();
+        renderAnalytics();
       });
     });
 
@@ -1092,6 +1334,7 @@
         activeFailureReasonDate = dateStr;
         showMotivation("Причина провала удалена.");
         renderCycleHistory();
+        renderAnalytics();
       });
     });
   }
@@ -1106,6 +1349,8 @@
     completions[dateStr]._evaluated = true;
     completions[dateStr]._passed = summary.passed;
     completions[dateStr]._failed = !summary.passed && summary.total > 0;
+
+    if (completions[dateStr]._passed) challenge.xp += 50;
 
     if (completions[dateStr]._failed) {
       challenge.failedDaysCount++;
@@ -1170,8 +1415,13 @@
       completions[today]._passed = true;
       completions[today]._failed = false;
       completions[today]._passedEarly = true;
+      challenge.xp += 50;
       saveCompletions();
+      saveChallenge();
       showMotivation(`День ${dayIdx + 1} закрыт досрочно. Все задачи выполнены.`);
+      if (typeof confetti !== "undefined") {
+        confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      }
       return true;
     }
 
@@ -1186,11 +1436,42 @@
     challenge.isActive = false;
     challenge.lastCycleCelebrated = null;
     challenge.pendingStartMode = "reset";
+    challenge.currentStreak = 0;
     activeFailureReasonDate = null;
     dismissedFailureReasonDate = null;
     saveCompletions();
     saveChallenge();
     renderEverything();
+  }
+
+  function restartCurrentCycle() {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
+
+    if (!challenge.isActive && !challenge.startDate) {
+      showMotivation("Сейчас нет активного цикла для перезапуска.");
+      return;
+    }
+
+    const shouldRestart = confirm("Начать цикл заново? Прогресс текущего цикла будет очищен, но задачи и заметки сохранятся.");
+    if (!shouldRestart) return;
+
+    completions = {};
+    challenge.startDate = null;
+    challenge.failedDaysCount = 0;
+    challenge.lastEvaluatedDate = null;
+    challenge.isActive = false;
+    challenge.lastCycleCelebrated = null;
+    challenge.pendingStartMode = "reset";
+    challenge.currentStreak = 0;
+    activeFailureReasonDate = null;
+    dismissedFailureReasonDate = null;
+    saveCompletions();
+    saveChallenge();
+    renderEverything();
+    showMotivation("Текущий цикл очищен. Выбери новую дату старта.");
   }
 
   function addNewTask() {
@@ -1211,12 +1492,32 @@
     const category = currentSelectedCategory;
     const desc = document.getElementById("taskDesc").value.trim();
     const recurring = document.getElementById("taskRecurring").checked;
+    const priority = (document.getElementById("taskPriority")?.value || "medium").trim();
+    const estimateMinRaw = document.getElementById("taskEstimateMin")?.value || "";
+    const estimateMin = estimateMinRaw ? Number(estimateMinRaw) : null;
 
     if (recurring) {
-      templates.push({ id: Date.now() + Math.random(), name, time, category, description: desc });
+      templates.push({
+        id: Date.now() + Math.random(),
+        name,
+        time,
+        category,
+        description: desc,
+        priority,
+        estimateMin
+      });
       saveTemplates();
     } else {
-      customTasks.push({ id: Date.now() + Math.random(), name, time, category, description: desc, date: today });
+      customTasks.push({
+        id: Date.now() + Math.random(),
+        name,
+        time,
+        category,
+        description: desc,
+        priority,
+        estimateMin,
+        date: today
+      });
       saveCustom();
     }
 
@@ -1224,6 +1525,10 @@
     document.getElementById("taskTime").value = "";
     document.getElementById("taskDesc").value = "";
     document.getElementById("taskRecurring").checked = false;
+    const priorityEl = document.getElementById("taskPriority");
+    if (priorityEl) priorityEl.value = "medium";
+    const estimateEl = document.getElementById("taskEstimateMin");
+    if (estimateEl) estimateEl.value = "";
 
     const startMode = getCycleStartMode();
     showMotivation(recurring
@@ -1279,8 +1584,18 @@
     let newCat = prompt(`Категория (${CATEGORIES.map(getCategoryLabel).join(", ")}):`, getCategoryLabel(task.category));
     if (newCat === null) return;
     newCat = parseCategoryInput(newCat, task.category);
+    const newPriority = prompt("Приоритет (high/medium/low):", task.priority || "medium");
+    if (newPriority === null) return;
+    const newEstimate = prompt("Оценка времени (минуты, пусто = нет):", task.estimateMin != null ? String(task.estimateMin) : "");
+    if (newEstimate === null) return;
     const newDesc = prompt("Описание:", task.description || "");
     if (newDesc === null) return;
+
+    const normalizedPriority = ["high", "medium", "low"].includes((newPriority || "").trim())
+      ? (newPriority || "").trim()
+      : "medium";
+    const normalizedEstimate = (newEstimate || "").trim() ? Number((newEstimate || "").trim()) : null;
+    const safeEstimate = Number.isFinite(normalizedEstimate) ? Math.max(1, Math.round(normalizedEstimate)) : null;
 
     if (task.isRecurring && task.templateId) {
       const idx = templates.findIndex(t => t.id === task.templateId);
@@ -1288,6 +1603,8 @@
         templates[idx].name = newName.trim();
         templates[idx].time = newTime || "18:00";
         templates[idx].category = newCat;
+        templates[idx].priority = normalizedPriority;
+        templates[idx].estimateMin = safeEstimate;
         templates[idx].description = newDesc;
         saveTemplates();
       }
@@ -1297,6 +1614,8 @@
         customTasks[idx].name = newName.trim();
         customTasks[idx].time = newTime || "18:00";
         customTasks[idx].category = newCat;
+        customTasks[idx].priority = normalizedPriority;
+        customTasks[idx].estimateMin = safeEstimate;
         customTasks[idx].description = newDesc;
         saveCustom();
       }
@@ -1311,9 +1630,16 @@
     }
     if (!dateStr || !taskId || isDayLocked(dateStr)) return;
     if (!completions[dateStr]) completions[dateStr] = {};
-    if (isChecked) completions[dateStr][taskId] = true;
-    else delete completions[dateStr][taskId];
+    const wasChecked = Boolean(completions[dateStr][taskId]);
+    if (isChecked) {
+      completions[dateStr][taskId] = true;
+      if (!wasChecked) challenge.xp += 10;
+    } else {
+      delete completions[dateStr][taskId];
+      if (wasChecked) challenge.xp = Math.max(0, challenge.xp - 10);
+    }
     saveCompletions();
+    saveChallenge();
     evaluateTodayIfComplete();
     renderEverything();
   }
@@ -1350,6 +1676,19 @@
     const queuedBadge = preview
       ? '<span class="rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-cyan-700">с завтрашнего дня</span>'
       : "";
+    const priority = task.priority || "medium";
+    const priorityBadge = priority === "high"
+      ? '<span class="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-rose-700">важно</span>'
+      : priority === "low"
+        ? '<span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-600">низкий</span>'
+        : '<span class="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-amber-700">средний</span>';
+    const estimateBadge = typeof task.estimateMin === "number" && task.estimateMin > 0
+      ? `<span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-600"><i class="far fa-hourglass mr-1"></i>${task.estimateMin}м</span>`
+      : "";
+    const canMoveToTomorrow = !preview && !locked && !task.isRecurring && Boolean(task.customId) && dateStr === todayStr();
+    const moveBtn = canMoveToTomorrow
+      ? `<button class="move-to-tomorrow-btn text-slate-700 hover:text-slate-900 p-1 text-sm" title="Перенести на завтра" data-task-id="${task.id}" data-date="${dateStr}"><i class="fas fa-arrow-right-long"></i></button>`
+      : "";
 
     return `
       <div class="task-card rounded-xl bg-white/90 p-3 border border-slate-200" style="border-left-color:${color}">
@@ -1360,6 +1699,8 @@
               <div class="font-semibold flex flex-wrap gap-2 items-center">
                 <span class="${done ? "line-through text-slate-400" : "text-slate-900"}">${escapeHtml(task.name)}</span>
                 <span class="category-badge">${getCategoryLabel(task.category)}</span>
+                ${priorityBadge}
+                ${estimateBadge}
                 ${queuedBadge}
               </div>
               <div class="text-xs text-slate-500 flex flex-wrap gap-3 mt-1">
@@ -1369,6 +1710,7 @@
             </div>
           </div>
           <div class="flex gap-1">
+            ${moveBtn}
             <button class="edit-task-btn text-cyan-700 hover:text-cyan-800 p-1 text-sm disabled:opacity-40" data-task-id="${task.id}" data-date="${dateStr}" ${locked && !preview ? "disabled" : ""}><i class="fas fa-pen"></i></button>
             <button class="delete-task-btn text-rose-600 hover:text-rose-700 p-1 disabled:opacity-40" data-task-id="${task.id}" data-date="${dateStr}" ${locked && !preview ? "disabled" : ""}><i class="fas fa-trash-alt"></i></button>
           </div>
@@ -1439,13 +1781,25 @@
     container.innerHTML = html;
     container.querySelectorAll('.task-toggle').forEach(cb => {
       cb.addEventListener('change', () => {
-        toggleCompletion(cb.dataset.date, cb.dataset.taskId, cb.checked);
+        const card = cb.closest('.task-card');
+        if (cb.checked && card) {
+          card.classList.add('completed-anim');
+          setTimeout(() => toggleCompletion(cb.dataset.date, cb.dataset.taskId, cb.checked), 300);
+        } else {
+          toggleCompletion(cb.dataset.date, cb.dataset.taskId, cb.checked);
+        }
       });
     });
     container.querySelectorAll('.edit-task-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const task = getTaskByRenderedId(btn.dataset.date, btn.dataset.taskId);
         if (task) editTask(task);
+      });
+    });
+    container.querySelectorAll('.move-to-tomorrow-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const task = getTaskByRenderedId(btn.dataset.date, btn.dataset.taskId);
+        if (task) moveTaskToTomorrow(task);
       });
     });
     container.querySelectorAll('.delete-task-btn').forEach(btn => {
@@ -1460,6 +1814,77 @@
     document.getElementById("todayTotalTasks").innerText = total;
     document.getElementById("todayCompletionPercent").innerText = Math.floor(percent) + "%";
     document.getElementById("todayProgressFill").style.width = `${percent}%`;
+  }
+
+  function moveTaskToTomorrow(task) {
+    if (!currentSupabaseUser) {
+      showMotivation("Сначала войди в аккаунт.");
+      return;
+    }
+    if (!task || task.isRecurring || !task.customId) return;
+    if (isDayLocked(task.date)) {
+      showMotivation("Сегодняшний день уже закрыт. Перенос заблокирован.");
+      return;
+    }
+    const tomorrow = addDaysToDateStr(todayStr(), 1);
+    const idx = customTasks.findIndex(c => c.id === task.customId);
+    if (idx === -1) return;
+    customTasks[idx].date = tomorrow;
+    saveCustom();
+    showMotivation("Задача перенесена на завтра.");
+    renderEverything();
+    renderTomorrowTasks();
+  }
+
+  function renderTomorrowTasks() {
+    const container = document.getElementById("tomorrowTasksContainer");
+    if (!container) return;
+    const tomorrow = addDaysToDateStr(todayStr(), 1);
+    const label = document.getElementById("tomorrowDateLabel");
+    if (label) label.textContent = formatDisplayDate(tomorrow);
+
+    const tasks = getTasksForDate(tomorrow);
+    const compMap = completions[tomorrow] || {};
+    const locked = isDayLocked(tomorrow);
+
+    if (tasks.length === 0) {
+      container.innerHTML = `<div class="text-center py-8 text-slate-400"><i class="fas fa-calendar-day"></i> На завтра задач пока нет. Можно перенести разовые задачи со “Сегодня”.</div>`;
+      return;
+    }
+
+    container.innerHTML = tasks.map(task => {
+      const markup = renderTaskCardMarkup(task, {
+        dateStr: tomorrow,
+        done: Boolean(compMap[task.id]),
+        locked
+      });
+      return markup;
+    }).join("");
+
+    // reuse handlers for toggles/edit/delete on tomorrow list
+    container.querySelectorAll('.task-toggle').forEach(cb => {
+      cb.addEventListener('change', () => {
+        toggleCompletion(cb.dataset.date, cb.dataset.taskId, cb.checked);
+      });
+    });
+    container.querySelectorAll('.edit-task-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const task = getTaskByRenderedId(btn.dataset.date, btn.dataset.taskId);
+        if (task) editTask(task);
+      });
+    });
+    container.querySelectorAll('.move-to-tomorrow-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const task = getTaskByRenderedId(btn.dataset.date, btn.dataset.taskId);
+        if (task) moveTaskToTomorrow(task);
+      });
+    });
+    container.querySelectorAll('.delete-task-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const task = getTaskByRenderedId(btn.dataset.date, btn.dataset.taskId);
+        if (task && confirm("Удалить эту задачу?")) deleteTask(task);
+      });
+    });
   }
 
   function renderAnalytics() {
@@ -1583,15 +2008,337 @@
       <p><i class="fas fa-trophy mr-2 text-emerald-600"></i>Цикл пройден: <span class="font-semibold text-slate-900">${challenge.completedCycles} раз</span></p>
       <p><i class="fas fa-layer-group mr-2 text-cyan-700"></i>${categoryHasRealData ? "Категории в графике показывают реальное выполнение." : "Категории показаны по умолчанию. Данные появятся после выполнения задач."}</p>
     `;
+
+    // heatmap (last 28 days)
+    const heatmapGrid = document.getElementById("heatmapGrid");
+    const heatmapLegend = document.getElementById("heatmapLegend");
+    if (heatmapLegend) {
+      heatmapLegend.innerHTML = `
+        <span class="mr-2">0%</span>
+        <span class="inline-block h-3 w-3 rounded bg-slate-100 border border-slate-200"></span>
+        <span class="inline-block h-3 w-3 rounded bg-rose-100 border border-rose-200"></span>
+        <span class="inline-block h-3 w-3 rounded bg-amber-100 border border-amber-200"></span>
+        <span class="inline-block h-3 w-3 rounded bg-emerald-100 border border-emerald-200"></span>
+        <span class="ml-2">100%</span>
+      `;
+    }
+    if (heatmapGrid) {
+      const dates28 = [];
+      for (let i = 27; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        dates28.push(formatDateLocal(d));
+      }
+      const cells = dates28.map(dateStr => {
+        const summary = getDayCompletion(dateStr);
+        const pct = Math.round(summary.percent || 0);
+        const hasTasks = summary.total > 0;
+        const tone = !hasTasks
+          ? "bg-slate-50 border-slate-200"
+          : pct >= 80
+            ? "bg-emerald-100 border-emerald-200"
+            : pct >= 50
+              ? "bg-amber-100 border-amber-200"
+              : "bg-rose-100 border-rose-200";
+        const title = `${formatDisplayDate(dateStr)} · ${hasTasks ? `${pct}% (${summary.completed}/${summary.total})` : "нет задач"}`;
+        return `<div class="h-9 rounded-xl border ${tone} flex items-center justify-center text-[10px] text-slate-600" title="${escapeHtml(title)}">${dateStr.slice(8)}</div>`;
+      }).join("");
+      heatmapGrid.innerHTML = cells;
+    }
+
+    // priority completion (last 7 days)
+    const priorityBuckets = {
+      high: { total: 0, done: 0, label: "Высокий", color: "rgba(244, 63, 94, 0.75)" },
+      medium: { total: 0, done: 0, label: "Средний", color: "rgba(245, 158, 11, 0.75)" },
+      low: { total: 0, done: 0, label: "Низкий", color: "rgba(100, 116, 139, 0.75)" }
+    };
+    last7.forEach(date => {
+      const tasks = getTasksForDate(date);
+      const compMap = completions[date] || {};
+      tasks.forEach(task => {
+        const pr = ["high", "medium", "low"].includes(task.priority) ? task.priority : "medium";
+        priorityBuckets[pr].total += 1;
+        if (compMap[task.id]) priorityBuckets[pr].done += 1;
+      });
+    });
+
+    const prLabels = Object.values(priorityBuckets).map(bucket => bucket.label);
+    const prData = Object.values(priorityBuckets).map(bucket => bucket.total > 0 ? Math.round((bucket.done / bucket.total) * 100) : 0);
+    const prColors = Object.values(priorityBuckets).map(bucket => bucket.color);
+    const priorityCanvas = document.getElementById("priorityChart");
+    if (priorityCanvas) {
+      if (priorityChart) priorityChart.destroy();
+      const ctxPr = priorityCanvas.getContext("2d");
+      priorityChart = new Chart(ctxPr, {
+        type: "bar",
+        data: {
+          labels: prLabels,
+          datasets: [{
+            label: "Выполнение, %",
+            data: prData,
+            backgroundColor: prColors,
+            borderColor: prColors.map(color => color.replace("0.75", "1")),
+            borderWidth: 1.5,
+            borderRadius: 12
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                afterLabel: context => {
+                  const idx = context.dataIndex;
+                  const key = Object.keys(priorityBuckets)[idx];
+                  const bucket = priorityBuckets[key];
+                  return `Задач: ${bucket.done}/${bucket.total}`;
+                }
+              }
+            }
+          },
+          scales: {
+            y: { max: 100, min: 0, grid: { color: "rgba(226, 232, 240, 0.9)" }, ticks: { color: "#64748b" } },
+            x: { ticks: { color: "#64748b" }, grid: { color: "rgba(226, 232, 240, 0.35)" } }
+          }
+        }
+      });
+    }
+
+    const reasonCounts = Object.fromEntries(FAILURE_REASONS.map(option => [option.key, 0]));
+    const cycleDates = challenge.startDate ? Array.from({ length: 21 }, (_, idx) => addDaysToDateStr(challenge.startDate, idx)) : [];
+    const datesToScan = cycleDates.length ? cycleDates : last7;
+    datesToScan.forEach(dateStr => {
+      const meta = completions?.[dateStr] || {};
+      if (!meta._failed) return;
+      const key = getFailureReasonKey(dateStr) || "other";
+      if (reasonCounts[key] === undefined) reasonCounts.other += 1;
+      else reasonCounts[key] += 1;
+    });
+
+    const reasonLabels = FAILURE_REASONS.map(option => option.label);
+    const reasonData = FAILURE_REASONS.map(option => reasonCounts[option.key] || 0);
+    const reasonCanvas = document.getElementById("failureReasonChart");
+    if (reasonCanvas) {
+      if (failureReasonChart) failureReasonChart.destroy();
+      const ctxReason = reasonCanvas.getContext("2d");
+      failureReasonChart = new Chart(ctxReason, {
+        type: "bar",
+        data: {
+          labels: reasonLabels,
+          datasets: [{
+            label: "Кол-во провалов",
+            data: reasonData,
+            backgroundColor: "rgba(244, 63, 94, 0.22)",
+            borderColor: "rgba(244, 63, 94, 0.65)",
+            borderWidth: 1.5
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { labels: { color: "#334155" } } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: "rgba(226, 232, 240, 0.9)" }, ticks: { color: "#64748b", precision: 0 } },
+            x: { ticks: { color: "#64748b", maxRotation: 30, minRotation: 0 }, grid: { color: "rgba(226, 232, 240, 0.35)" } }
+          }
+        }
+      });
+    }
+
+    // failure reasons trend (last 4 weeks, stacked)
+    const trendCanvas = document.getElementById("failureReasonTrendChart");
+    if (trendCanvas) {
+      const now = new Date();
+      const weekStarts = Array.from({ length: 4 }, (_, i) => {
+        const d = new Date(now);
+        d.setHours(12, 0, 0, 0);
+        d.setDate(d.getDate() - (d.getDay() === 0 ? 6 : d.getDay() - 1)); // Monday start
+        d.setDate(d.getDate() - (3 - i) * 7);
+        return d;
+      });
+      const weekLabels = weekStarts.map(d => `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`);
+      const weekKeys = weekStarts.map(d => formatDateLocal(d));
+
+      const byWeek = weekKeys.map(() => Object.fromEntries(FAILURE_REASONS.map(option => [option.key, 0])));
+      // scan last 28 days
+      for (let i = 0; i < 28; i++) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const dateStr = formatDateLocal(d);
+        const meta = completions?.[dateStr] || {};
+        if (!meta._failed) continue;
+        const key = getFailureReasonKey(dateStr) || "other";
+        // find week index
+        for (let w = 0; w < 4; w++) {
+          const start = parseDateLocal(weekKeys[w]);
+          const end = new Date(start);
+          end.setDate(end.getDate() + 7);
+          const cur = parseDateLocal(dateStr);
+          if (cur >= start && cur < end) {
+            if (byWeek[w][key] === undefined) byWeek[w].other += 1;
+            else byWeek[w][key] += 1;
+            break;
+          }
+        }
+      }
+
+      const datasets = FAILURE_REASONS
+        .filter(option => option.key !== "other")
+        .map(option => ({
+          label: option.label,
+          data: byWeek.map(weekObj => weekObj[option.key] || 0),
+          backgroundColor: option.key === "laziness" ? "rgba(244, 63, 94, 0.55)" : "rgba(14, 165, 233, 0.35)",
+          borderColor: "rgba(148, 163, 184, 0.25)",
+          borderWidth: 1
+        }));
+      datasets.push({
+        label: "Другое",
+        data: byWeek.map(weekObj => weekObj.other || 0),
+        backgroundColor: "rgba(100, 116, 139, 0.35)",
+        borderColor: "rgba(148, 163, 184, 0.25)",
+        borderWidth: 1
+      });
+
+      if (failureReasonTrendChart) failureReasonTrendChart.destroy();
+      const ctxTrend = trendCanvas.getContext("2d");
+      failureReasonTrendChart = new Chart(ctxTrend, {
+        type: "bar",
+        data: { labels: weekLabels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: "bottom", labels: { color: "#334155", font: { size: 10 }, boxWidth: 12, padding: 12 } }
+          },
+          scales: {
+            x: { stacked: true, ticks: { color: "#64748b" }, grid: { color: "rgba(226, 232, 240, 0.35)" } },
+            y: { stacked: true, beginAtZero: true, ticks: { color: "#64748b", precision: 0 }, grid: { color: "rgba(226, 232, 240, 0.9)" } }
+          }
+        }
+      });
+    }
+
+    // notes analytics
+    const notesText = document.getElementById("notesAnalyticsText");
+    if (notesText) {
+      const nowMs = Date.now();
+      const dueCount = notes.filter(note => {
+        const nextAt = note.nextReviewAt ? new Date(note.nextReviewAt).getTime() : 0;
+        return Number.isFinite(nextAt) ? nextAt <= nowMs : true;
+      }).length;
+
+      const cutoffMs = nowMs - 6 * 86400000;
+      const reviewedLast7 = notes.filter(note => {
+        if (!note.lastReviewedAt) return false;
+        const t = new Date(note.lastReviewedAt).getTime();
+        if (!Number.isFinite(t)) return false;
+        return t >= cutoffMs;
+      }).length;
+
+      const tagCounts = {};
+      notes.forEach(note => {
+        (Array.isArray(note.tags) ? note.tags : []).forEach(tag => {
+          const key = String(tag || "").trim();
+          if (!key) return;
+          tagCounts[key] = (tagCounts[key] || 0) + 1;
+        });
+      });
+      const topTags = Object.entries(tagCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([tag, count]) => `#${escapeHtml(tag)} (${count})`)
+        .join(" · ");
+
+      notesText.innerHTML = `
+        <div class="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="text-xs uppercase tracking-[0.18em] text-slate-500">К повторению сейчас</div>
+            <div class="text-lg font-black text-slate-900">${dueCount}</div>
+          </div>
+          <div class="mt-2 text-xs text-slate-500">Всего заметок: ${notes.length} · Повторил за 7 дней: ${reviewedLast7}</div>
+          ${topTags ? `<div class="mt-3 text-xs text-slate-600"><i class="fas fa-tags mr-2 text-cyan-700"></i>${topTags}</div>` : `<div class="mt-3 text-xs text-slate-500">Тегов пока нет.</div>`}
+        </div>
+      `;
+    }
   }
 
   function renderHeaderStats() {
     const startMode = getCycleStartMode();
+    const restartCycleBtn = document.getElementById("headerRestartCycleBtn");
     document.getElementById("currentDayNum").innerText = String(getDisplayedCycleDay());
     document.getElementById("failedDaysCount").innerText = String(challenge.failedDaysCount);
     document.getElementById("startDateDisplay").innerText = startMode
       ? "выбери старт"
       : (challenge.startDate ? formatDisplayDate(challenge.startDate) : "ожидание первой задачи");
+    const miniStart = document.getElementById("startDateDisplayMini");
+    if (miniStart) {
+      miniStart.textContent = startMode
+        ? "выбери старт"
+        : (challenge.startDate ? formatDisplayDate(challenge.startDate) : "ожидание");
+    }
+    if (restartCycleBtn) {
+      const canRestart = Boolean(currentSupabaseUser && (challenge.isActive || challenge.startDate));
+      restartCycleBtn.classList.toggle("hidden", !canRestart);
+    }
+  }
+
+
+  function getRankData(xp) {
+    if (xp >= 15000) return { name: "Грандмастер", icon: "👑", nextXp: null };
+    if (xp >= 7000) return { name: "Мастер", icon: "💎", nextXp: 15000, nextName: "Грандмастер", base: 7000 };
+    if (xp >= 3000) return { name: "Воин", icon: "⚔️", nextXp: 7000, nextName: "Мастер", base: 3000 };
+    if (xp >= 1000) return { name: "Ученик", icon: "🥈", nextXp: 3000, nextName: "Воин", base: 1000 };
+    return { name: "Новичок", icon: "🥉", nextXp: 1000, nextName: "Ученик", base: 0 };
+  }
+
+  function updateGamificationUI() {
+    if (!currentSupabaseUser) return;
+    const rank = getRankData(challenge.xp);
+
+    // Update Header Badge
+    const headerRankIcon = document.getElementById("headerRankIcon");
+    const headerRankName = document.getElementById("headerRankName");
+    const headerStreakValue = document.getElementById("headerStreakValue");
+    if (headerRankIcon) headerRankIcon.textContent = rank.icon;
+    if (headerRankName) headerRankName.textContent = rank.name;
+    if (headerStreakValue) headerStreakValue.textContent = challenge.currentStreak;
+
+    // Update Profile Card
+    const profileRankIcon = document.getElementById("profileRankIcon");
+    const profileRankName = document.getElementById("profileRankName");
+    const profileTotalXP = document.getElementById("profileTotalXP");
+    const profileNextRankName = document.getElementById("profileNextRankName");
+    const profileXPToNext = document.getElementById("profileXPToNext");
+    const profileRankProgress = document.getElementById("profileRankProgress");
+
+    const profileCurrentStreak = document.getElementById("profileCurrentStreak");
+    const profileMaxStreak = document.getElementById("profileMaxStreak");
+    const profileCompletedCycles = document.getElementById("profileCompletedCycles");
+
+    if (profileRankIcon) profileRankIcon.textContent = rank.icon;
+    if (profileRankName) profileRankName.textContent = rank.name;
+    if (profileTotalXP) profileTotalXP.textContent = challenge.xp;
+
+    if (profileCurrentStreak) profileCurrentStreak.textContent = challenge.currentStreak;
+    if (profileMaxStreak) profileMaxStreak.textContent = challenge.maxStreak;
+    if (profileCompletedCycles) profileCompletedCycles.textContent = challenge.completedCycles;
+
+    if (rank.nextXp) {
+      const needed = rank.nextXp - challenge.xp;
+      const totalRange = rank.nextXp - rank.base;
+      const currentProgress = challenge.xp - rank.base;
+      const percentage = Math.max(0, Math.min(100, (currentProgress / totalRange) * 100));
+
+      if (profileNextRankName) profileNextRankName.textContent = rank.nextName;
+      if (profileXPToNext) profileXPToNext.textContent = needed;
+      if (profileRankProgress) profileRankProgress.style.width = `${percentage}%`;
+    } else {
+      if (profileNextRankName) profileNextRankName.textContent = "Максимальный";
+      if (profileXPToNext) profileXPToNext.textContent = "0";
+      if (profileRankProgress) profileRankProgress.style.width = "100%";
+    }
   }
 
   function renderEverything() {
@@ -1609,8 +2356,10 @@
     renderCycleHistory();
     renderCycleStartPlanner();
     renderTodayTasks();
+    renderTomorrowTasks();
     renderNotesPanel();
     renderAnalytics();
+    updateGamificationUI();
   }
 
   function showMotivation(msg) {
@@ -1646,6 +2395,9 @@
 
     challenge.lastCycleCelebrated = endDate;
     challenge.completedCycles += 1;
+    challenge.xp += 1000;
+    challenge.currentStreak += 1;
+    if (challenge.currentStreak > challenge.maxStreak) challenge.maxStreak = challenge.currentStreak;
     saveChallenge();
 
     const ending = challenge.failedDaysCount === 0
@@ -1692,6 +2444,7 @@
     renderCategoryButtons();
     renderSupabaseSettings();
     renderEverything();
+    setActiveView(DEFAULT_ACTIVE_VIEW, { sync: false });
     startReminders();
     setInterval(renderEverything, 60000);
     initializeSupabaseIfNeeded();
@@ -1705,6 +2458,7 @@
   document.getElementById("noteTitle")?.addEventListener("keydown", event => {
     if (event.key === "Enter") addNote();
   });
+  document.getElementById("notesSearch")?.addEventListener("input", () => renderNotesPanel());
   document.getElementById("studyRandomNoteBtn")?.addEventListener("click", () => {
     startStudyNote();
   });
@@ -1731,6 +2485,42 @@
   });
   document.getElementById("headerLogoutBtn")?.addEventListener("click", () => {
     logoutSupabaseUser();
+  });
+  document.getElementById("headerRestartCycleBtn")?.addEventListener("click", () => {
+    restartCurrentCycle();
+  });
+  document.getElementById("navTodayBottomBtn")?.addEventListener("click", () => setActiveView("today"));
+  document.getElementById("navTomorrowBottomBtn")?.addEventListener("click", () => setActiveView("tomorrow"));
+  document.getElementById("navStatsBottomBtn")?.addEventListener("click", () => setActiveView("stats"));
+  document.getElementById("btnFailChartOverall")?.addEventListener("click", () => {
+    document.getElementById("btnFailChartOverall")?.classList.add("active");
+    document.getElementById("btnFailChartWeekly")?.classList.remove("active");
+    document.getElementById("failChartOverallWrapper")?.classList.remove("hidden");
+    document.getElementById("failChartWeeklyWrapper")?.classList.add("hidden");
+    document.getElementById("failChartDesc").textContent = "График собирается по выбранным причинам в проваленных днях.";
+  });
+  document.getElementById("btnFailChartWeekly")?.addEventListener("click", () => {
+    document.getElementById("btnFailChartWeekly")?.classList.add("active");
+    document.getElementById("btnFailChartOverall")?.classList.remove("active");
+    document.getElementById("failChartWeeklyWrapper")?.classList.remove("hidden");
+    document.getElementById("failChartOverallWrapper")?.classList.add("hidden");
+    document.getElementById("failChartDesc").textContent = "Показывает, какие причины чаще встречались по неделям (последние 4 недели).";
+  });
+  document.getElementById("closeStudyModalBtn")?.addEventListener("click", closeStudyModal);
+  document.getElementById("studyRevealBtn")?.addEventListener("click", revealStudyNote);
+  document.getElementById("studyHardBtn")?.addEventListener("click", () => {
+    if (activeStudyNoteId) markNoteReviewedWithDifficulty(activeStudyNoteId, "hard");
+  });
+  document.getElementById("studyNormalBtn")?.addEventListener("click", () => {
+    if (activeStudyNoteId) markNoteReviewedWithDifficulty(activeStudyNoteId, "normal");
+  });
+  document.getElementById("studyEasyBtn")?.addEventListener("click", () => {
+    if (activeStudyNoteId) markNoteReviewedWithDifficulty(activeStudyNoteId, "easy");
+  });
+  document.getElementById("studyNextBtn")?.addEventListener("click", () => startStudyNote());
+  document.getElementById("studyModalBackdrop")?.addEventListener("click", closeStudyModal);
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && isStudyModalOpen) closeStudyModal();
   });
   loadAllData();
 

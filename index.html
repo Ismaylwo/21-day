@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <link rel="stylesheet" href="./css/main.css">
 </head>
 <body class="text-slate-800">
@@ -23,6 +24,15 @@
       </h1>
       <p class="mt-1 text-sm text-slate-600">80% выполнения за день = день засчитан · 3 провала = полный сброс · повторяющиеся задачи создаются заново каждый день</p>
     </div>
+
+    <!-- GAMIFICATION BADGE (Global Header) -->
+    <div id="headerGamificationBadge" class="hidden shrink-0 flex items-center gap-2 rounded-2xl bg-white/70 px-4 py-2 shadow-sm border border-slate-200">
+      <div id="headerRankIcon" class="text-2xl filter drop-shadow-sm">🥉</div>
+      <div class="flex flex-col">
+        <span id="headerRankName" class="text-xs font-bold uppercase tracking-wider text-slate-700">Новичок</span>
+        <span class="text-[10px] font-semibold text-slate-500"><span id="headerStreakValue" class="text-teal-600">0</span> 🔥 серий</span>
+      </div>
+    </div>
     <div id="headerAccountCard" class="glass-panel hidden w-full p-4 text-sm text-slate-600 xl:w-auto xl:min-w-[22rem]">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between xl:flex-col xl:items-stretch">
         <div class="text-left xl:text-right">
@@ -31,6 +41,9 @@
           <div class="mt-2"><i class="fas fa-user-shield mr-1"></i> <span id="headerUserEmail" class="text-slate-800">аккаунт не выбран</span></div>
         </div>
         <div class="flex flex-col gap-2 sm:flex-row xl:justify-end">
+          <button id="headerRestartCycleBtn" type="button" class="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-2 font-semibold text-cyan-700 transition hover:bg-cyan-100">
+            <i class="fas fa-rotate-right mr-2"></i>Начать заново
+          </button>
           <button id="headerLogoutBtn" type="button" class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 font-semibold text-rose-700 transition hover:bg-rose-100">
             <i class="fas fa-arrow-right-from-bracket mr-2"></i>Выйти
           </button>
@@ -69,6 +82,15 @@
   </div>
 
   <div id="appContent" class="hidden">
+  <!-- TOP NAV (tabs) removed in favor of bottom nav -->
+  <div class="mb-6 flex items-center justify-end gap-3">
+    <div class="hidden text-xs text-slate-500 sm:block">
+      <span class="rounded-full border border-slate-200 bg-white/70 px-3 py-1"><i class="fas fa-cloud mr-1"></i>данные в Supabase</span>
+    </div>
+  </div>
+
+  <!-- VIEW: TODAY -->
+  <section id="todayView">
   <div id="cycleStartPlanner" class="glass-panel hidden mb-8 p-5">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div class="max-w-2xl">
@@ -92,40 +114,7 @@
       </button>
     </div>
   </div>
-  <!-- STATS ROW -->
-  <div class="grid grid-cols-1 gap-5 mb-8 sm:grid-cols-2 xl:grid-cols-4">
-    <div class="glass-panel p-5 flex justify-between">
-      <div><i class="fas fa-calendar-week text-3xl text-cyan-700"></i><p class="text-xs mt-1 text-slate-500">ДЕНЬ ЦИКЛА</p><p class="text-3xl font-black"><span id="currentDayNum">0</span><span class="text-base text-slate-500">/21</span></p></div>
-      <div class="text-right"><i class="fas fa-chart-line text-emerald-600 text-2xl"></i></div>
-    </div>
-    <div class="glass-panel p-5 flex justify-between">
-      <div><i class="fas fa-tasks text-2xl text-teal-600"></i><p class="text-xs text-slate-500">ЗАДАЧИ НА СЕГОДНЯ</p><p class="text-2xl font-bold"><span id="todayCompletedCount">0</span>/<span id="todayTotalTasks">0</span></p><div class="w-full h-1.5 bg-slate-200 rounded-full mt-1"><div id="todayProgressFill" class="h-1.5 rounded-full w-0 progress-glow"></div></div></div>
-      <div class="text-right"><span id="todayCompletionPercent">0%</span><br><span class="text-[11px] text-slate-500">порог 80%</span></div>
-    </div>
-    <div class="glass-panel p-5 flex justify-between">
-      <div><i class="fas fa-exclamation-triangle text-2xl text-amber-500"></i><p class="text-xs text-slate-500">ПРОВАЛЫ</p><p class="text-3xl font-bold text-amber-600"><span id="failedDaysCount">0</span> <span class="text-base">/3</span></p></div>
-      <div><i class="fas fa-skull text-3xl text-rose-300"></i></div>
-    </div>
-    <div class="glass-panel p-5 flex justify-between">
-      <div><i class="fas fa-chart-simple text-2xl text-emerald-600"></i><p class="text-xs text-slate-500">СРЕДНЕЕ ЗА НЕДЕЛЮ</p><p class="text-3xl font-bold text-emerald-700"><span id="weeklyAverageValue">0%</span></p></div>
-      <div><i class="fas fa-bullseye text-3xl text-cyan-600/60"></i></div>
-    </div>
-  </div>
-
-  <div class="glass-panel mb-8 p-5">
-    <div class="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="flex items-center gap-2 text-xl font-bold"><i class="fas fa-timeline text-cyan-700"></i> История 21 дней</h2>
-        <p class="mt-1 text-sm text-slate-600">Каждый день цикла показывает свой статус: пройден, провален, в процессе или впереди.</p>
-      </div>
-      <div id="cycleHistorySummary" class="text-sm text-slate-600"></div>
-    </div>
-    <div id="cycleHistoryGrid" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      <div class="rounded-2xl border border-slate-200 bg-white/90 px-4 py-5 text-sm text-slate-500">История цикла появится после старта.</div>
-    </div>
-  </div>
-
-  <!-- MAIN: TASKS + ANALYTICS -->
+  <!-- MAIN: TASKS + NOTES -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-7">
     <!-- LEFT COL: ADD TASK + TODAY'S TASKS -->
     <div class="lg:col-span-2 space-y-6">
@@ -135,6 +124,28 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
           <input type="text" id="taskName" placeholder="Название задачи *" class="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none">
           <input type="time" id="taskTime" class="bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm">
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+          <label class="block">
+            <span class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Приоритет</span>
+            <select id="taskPriority" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500">
+              <option value="high">Высокий</option>
+              <option value="medium" selected>Средний</option>
+              <option value="low">Низкий</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs uppercase tracking-[0.2em] text-slate-500">Оценка времени</span>
+            <select id="taskEstimateMin" class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-500">
+              <option value="">—</option>
+              <option value="15">15 мин</option>
+              <option value="30">30 мин</option>
+              <option value="45">45 мин</option>
+              <option value="60">60 мин</option>
+              <option value="90">90 мин</option>
+              <option value="120">120 мин</option>
+            </select>
+          </label>
         </div>
         <!-- Category row as horizontal buttons (queued) -->
         <div class="mb-3">
@@ -180,40 +191,259 @@
             <i class="fas fa-plus mr-2"></i>Добавить
           </button>
         </div>
+        <input id="noteTags" type="text" placeholder="Теги (через запятую), напр.: английский, здоровье" class="mt-3 w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-500">
         <textarea id="noteContent" rows="4" placeholder="Текст заметки, правило, формула или краткий конспект..." class="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-cyan-500"></textarea>
 
         <div id="noteStudyCard" class="hidden mt-4 rounded-3xl border border-cyan-200 bg-cyan-50 p-5"></div>
+        <div class="mt-4">
+          <input id="notesSearch" type="text" placeholder="Поиск по заметкам..." class="w-full rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-500">
+        </div>
         <div id="notesContainer" class="mt-4 space-y-3 max-h-[420px] overflow-y-auto pr-1">
           <div class="text-center py-8 text-slate-500">Заметок пока нет.</div>
         </div>
       </div>
     </div>
 
-    <!-- RIGHT COL: ANALYTICS -->
-    <div class="space-y-6">
+    <!-- RIGHT COL: MINI STATS -->
+    <div class="space-y-4">
       <div class="glass-panel p-5">
-        <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-chart-pie text-cyan-700"></i> категории за 7 дней</h3>
-        <div class="mt-4 h-64">
-          <canvas id="categoryChart" class="h-full w-full"></canvas>
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-xs uppercase tracking-[0.22em] text-slate-500">День цикла</div>
+          <div class="text-xs text-slate-500"><i class="fas fa-calendar-alt mr-1"></i><span id="startDateDisplayMini">—</span></div>
+        </div>
+        <div class="mt-3 flex items-baseline gap-2">
+          <div class="text-4xl font-black text-slate-900"><span id="currentDayNum">0</span></div>
+          <div class="text-sm text-slate-500">/21</div>
         </div>
       </div>
       <div class="glass-panel p-5">
-        <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-waveform text-cyan-700"></i> выполнение за неделю</h3>
-        <div class="mt-4 h-64">
-          <canvas id="weeklyChart" class="h-full w-full"></canvas>
+        <div class="flex items-center justify-between">
+          <div class="text-xs uppercase tracking-[0.22em] text-slate-500">Сегодня</div>
+          <div class="text-sm font-semibold text-slate-700"><span id="todayCompletionPercent">0%</span></div>
+        </div>
+        <div class="mt-2 text-sm text-slate-600"><span id="todayCompletedCount">0</span>/<span id="todayTotalTasks">0</span> задач</div>
+        <div class="mt-3 w-full h-2 bg-slate-200 rounded-full">
+          <div id="todayProgressFill" class="h-2 rounded-full w-0 progress-glow"></div>
         </div>
       </div>
       <div class="glass-panel p-5">
-        <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-chart-simple text-amber-500"></i> сводка цикла</h3>
-        <div id="projectAnalyticsText" class="text-sm space-y-1"></div>
+        <div class="flex items-center justify-between">
+          <div class="text-xs uppercase tracking-[0.22em] text-slate-500">Провалы</div>
+          <div class="text-2xl font-black text-amber-600"><span id="failedDaysCount">0</span><span class="text-sm text-slate-500">/3</span></div>
+        </div>
+        <div class="mt-2 text-xs text-slate-500">3 провала = полный сброс</div>
+      </div>
+      <div class="glass-panel p-5">
+        <div class="flex items-center justify-between">
+          <div class="text-xs uppercase tracking-[0.22em] text-slate-500">Среднее за неделю</div>
+          <div class="text-2xl font-black text-emerald-700"><span id="weeklyAverageValue">0%</span></div>
+        </div>
       </div>
     </div>
   </div>
+  </section>
+
+  <!-- VIEW: TOMORROW -->
+  <section id="tomorrowView" class="hidden">
+    <div class="glass-panel mb-6 p-5">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-xl font-bold flex items-center gap-2"><i class="fas fa-calendar-day text-cyan-700"></i> Завтра</h2>
+          <p class="mt-1 text-sm text-slate-600">Планируй задачи заранее. Разовые задачи можно переносить на завтра одной кнопкой.</p>
+        </div>
+        <div class="text-sm text-slate-600">
+          <span class="rounded-full border border-slate-200 bg-white/70 px-3 py-1"><i class="far fa-clock mr-1"></i><span id="tomorrowDateLabel">—</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass-panel p-5">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
+        <h3 class="text-lg font-bold"><i class="fas fa-list-check text-teal-600 mr-2"></i> задачи на завтра</h3>
+        <span class="text-xs bg-slate-100 px-3 py-1 rounded-full text-slate-600"><i class="fas fa-arrow-turn-down mr-1"></i>переноси разовые задачи</span>
+      </div>
+      <div id="tomorrowTasksContainer" class="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+        <div class="text-center text-slate-500 py-8">загрузка задач...</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW: STATS -->
+  <section id="statsView" class="hidden">
+
+    <!-- GAMIFICATION PROFILE CARD -->
+    <div class="glass-panel mb-6 p-6 text-center shadow-lg relative overflow-hidden group">
+      <!-- Background glow effect -->
+      <div class="absolute -top-16 -right-16 w-32 h-32 bg-teal-400 rounded-full blur-[60px] opacity-20 group-hover:opacity-40 transition duration-500"></div>
+      <div class="absolute -bottom-16 -left-16 w-32 h-32 bg-cyan-400 rounded-full blur-[60px] opacity-20 group-hover:opacity-40 transition duration-500"></div>
+
+      <div class="relative z-10 flex flex-col items-center">
+        <div id="profileRankIcon" class="text-6xl mb-2 filter drop-shadow-md transform transition duration-500 group-hover:scale-110">🥉</div>
+        <h2 id="profileRankName" class="text-2xl font-black text-slate-800 tracking-tight">Новичок</h2>
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-[0.2em] mt-1"><span id="profileTotalXP">0</span> XP</div>
+
+        <!-- Progress Bar -->
+        <div class="w-full max-w-sm mt-5">
+          <div class="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+            <span>Текущий ранг</span>
+            <span id="profileNextRankName">Ученик</span>
+          </div>
+          <div class="h-3 w-full bg-slate-200/80 rounded-full overflow-hidden shadow-inner">
+            <div id="profileRankProgress" class="h-full bg-gradient-to-r from-teal-400 to-cyan-500 rounded-full transition-all duration-1000" style="width: 0%"></div>
+          </div>
+          <div class="text-right text-[10px] font-bold text-slate-400 mt-1"><span id="profileXPToNext">1000</span> XP до повышения</div>
+        </div>
+
+        <!-- Streak Stats -->
+        <div class="mt-6 flex flex-wrap justify-center gap-3 text-sm font-semibold">
+          <div class="bg-white/80 px-4 py-2 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-2 transition hover:-translate-y-1">
+            <span class="text-xl">🔥</span> <span class="text-slate-600">Серия:</span> <span id="profileCurrentStreak" class="text-teal-700 font-bold text-lg">0</span>
+          </div>
+          <div class="bg-white/80 px-4 py-2 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-2 transition hover:-translate-y-1">
+            <span class="text-xl">⚡</span> <span class="text-slate-600">Макс:</span> <span id="profileMaxStreak" class="text-amber-600 font-bold text-lg">0</span>
+          </div>
+          <div class="bg-white/80 px-4 py-2 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-2 transition hover:-translate-y-1">
+            <span class="text-xl">🏆</span> <span class="text-slate-600">Циклов:</span> <span id="profileCompletedCycles" class="text-indigo-600 font-bold text-lg">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass-panel mb-6 p-5">
+      <div class="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="flex items-center gap-2 text-xl font-bold"><i class="fas fa-timeline text-cyan-700"></i> История 21 дней</h2>
+          <p class="mt-1 text-sm text-slate-600">Каждый день цикла показывает свой статус: пройден, провален, в процессе или впереди.</p>
+        </div>
+        <div id="cycleHistorySummary" class="text-sm text-slate-600"></div>
+      </div>
+      <div id="cycleHistoryGrid" class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="rounded-2xl border border-slate-200 bg-white/90 px-4 py-5 text-sm text-slate-500">История цикла появится после старта.</div>
+      </div>
+    </div>
+
+    <div class="glass-panel mb-6 p-5">
+      <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-calendar text-cyan-700"></i> календарь выполнения</h3>
+      <p class="mt-1 text-sm text-slate-600">Последние 28 дней: цвет показывает процент выполнения задач в день.</p>
+      <div id="heatmapLegend" class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600"></div>
+      <div id="heatmapGrid" class="mt-4 grid grid-cols-7 gap-2"></div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div class="space-y-6 lg:col-span-2">
+        <div class="glass-panel p-5">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-waveform text-cyan-700"></i> выполнение за неделю</h3>
+          <div class="mt-4 h-64">
+            <canvas id="weeklyChart" class="h-full w-full"></canvas>
+          </div>
+        </div>
+        <div class="glass-panel p-5">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-chart-pie text-cyan-700"></i> категории за 7 дней</h3>
+          <div class="mt-4 h-64">
+            <canvas id="categoryChart" class="h-full w-full"></canvas>
+          </div>
+        </div>
+        <div class="glass-panel p-5">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-flag text-cyan-700"></i> выполнение по приоритетам</h3>
+          <p class="mt-1 text-sm text-slate-600">Считает выполнение задач за последние 7 дней по приоритету.</p>
+          <div class="mt-4 h-64">
+            <canvas id="priorityChart" class="h-full w-full"></canvas>
+          </div>
+        </div>
+        <div class="glass-panel p-5">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-triangle-exclamation text-rose-600"></i> причины провалов</h3>
+            <div class="segment-control">
+              <button id="btnFailChartOverall" class="segment-btn active">Общее</button>
+              <button id="btnFailChartWeekly" class="segment-btn">По неделям</button>
+            </div>
+          </div>
+          <p class="mt-2 text-sm text-slate-600" id="failChartDesc">График собирается по выбранным причинам в проваленных днях.</p>
+          <div class="mt-4 h-64 relative">
+            <div id="failChartOverallWrapper" class="absolute inset-0">
+              <canvas id="failureReasonChart" class="h-full w-full"></canvas>
+            </div>
+            <div id="failChartWeeklyWrapper" class="absolute inset-0 hidden">
+              <canvas id="failureReasonTrendChart" class="h-full w-full"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-6">
+        <div class="glass-panel p-5">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-chart-simple text-amber-500"></i> сводка цикла</h3>
+          <div id="projectAnalyticsText" class="text-sm space-y-1"></div>
+        </div>
+        <div class="glass-panel p-5">
+          <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-note-sticky text-cyan-700"></i> заметки: повторения</h3>
+          <div id="notesAnalyticsText" class="mt-2 space-y-2 text-sm text-slate-700"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+    <!-- BOTTOM NAV BAR -->
+    <nav id="bottomNavBar" class="bottom-nav-bar">
+      <button id="navTodayBottomBtn" class="bottom-nav-btn active">
+        <i class="fas fa-list-check"></i>
+        <span>Сегодня</span>
+      </button>
+      <button id="navTomorrowBottomBtn" class="bottom-nav-btn">
+        <i class="fas fa-calendar-day"></i>
+        <span>Завтра</span>
+      </button>
+      <button id="navStatsBottomBtn" class="bottom-nav-btn">
+        <i class="fas fa-chart-column"></i>
+        <span>Статистика</span>
+      </button>
+    </nav>
+  </div>
+</div>
+
+<!-- FULLSCREEN STUDY MODAL -->
+<div id="studyModal" class="fixed inset-0 z-[60] hidden">
+  <div id="studyModalBackdrop" class="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"></div>
+  <div class="absolute inset-0 flex items-end justify-center p-4 sm:items-center">
+    <div class="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white shadow-2xl">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div class="min-w-0">
+          <div class="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700"><i class="fas fa-brain mr-2"></i>Режим учёбы</div>
+          <div id="studyModalTitle" class="mt-1 truncate text-lg font-bold text-slate-900">—</div>
+        </div>
+        <button id="closeStudyModalBtn" type="button" class="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <i class="fas fa-xmark mr-2"></i>Закрыть
+        </button>
+      </div>
+      <div class="px-5 py-5">
+        <div id="studyModalBody" class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-800"></div>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button id="studyRevealBtn" type="button" class="rounded-2xl bg-cyan-700 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-600">
+            <i class="fas fa-eye mr-2"></i>Показать
+          </button>
+          <div id="studyDifficultyRow" class="hidden flex flex-wrap gap-2">
+            <button id="studyHardBtn" type="button" class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100">
+              <i class="fas fa-dumbbell mr-2"></i>Сложно
+            </button>
+            <button id="studyNormalBtn" type="button" class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100">
+              <i class="fas fa-scale-balanced mr-2"></i>Норм
+            </button>
+            <button id="studyEasyBtn" type="button" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100">
+              <i class="fas fa-leaf mr-2"></i>Легко
+            </button>
+          </div>
+          <button id="studyNextBtn" type="button" class="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-cyan-100">
+            <i class="fas fa-shuffle mr-2"></i>Другая
+          </button>
+        </div>
+        <div id="studyModalMeta" class="mt-4 text-xs text-slate-500"></div>
+      </div>
+    </div>
   </div>
 </div>
 
 <!-- hidden toast for motivational messages -->
 <div id="motivationToast" class="fixed bottom-5 right-5 motivation-snack p-4 rounded-2xl max-w-sm border-l-8 border-teal-400 transform translate-x-full transition-all duration-300 z-50 shadow-2xl"></div>
+
+
 
   <script charset="utf-8" src="./js/app.js"></script>
 </body>
